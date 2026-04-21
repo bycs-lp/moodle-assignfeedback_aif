@@ -28,24 +28,23 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/mod/assign/locallib.php');
 
-use \core_privacy\local\metadata\collection;
-use \core_privacy\local\request\writer;
-use \core_privacy\local\request\contextlist;
-use \mod_assign\privacy\assign_plugin_request_data;
-use \mod_assign\privacy\useridlist;
+use core_privacy\local\metadata\collection;
+use core_privacy\local\request\writer;
+use core_privacy\local\request\contextlist;
+use mod_assign\privacy\assign_plugin_request_data;
+use mod_assign\privacy\useridlist;
 
 /**
  * Privacy class for requesting user data.
  *
  * @package    assignfeedback_aif
- * @copyright  2018 Adrian Greeve <adrian@moodle.com>
+ * @copyright  2025 Sumaiya Javed <sumaiya.javed@catalyst.net.nz>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class provider implements
-        \core_privacy\local\metadata\provider,
-        \mod_assign\privacy\assignfeedback_provider,
-        \mod_assign\privacy\assignfeedback_user_provider {
-
+    \core_privacy\local\metadata\provider,
+    \mod_assign\privacy\assignfeedback_provider,
+    \mod_assign\privacy\assignfeedback_user_provider {
     /**
      * Return meta data about this plugin.
      *
@@ -55,7 +54,7 @@ class provider implements
     public static function get_metadata(collection $collection): collection {
         $data = [
             'assignment' => 'privacy:metadata:assignmentid',
-            'aitext' => 'privacy:metadata:aitext'
+            'aitext' => 'privacy:metadata:aitext',
         ];
         $collection->add_database_table('assignfeedback_aif_feedback', $data, 'privacy:metadata:tablesummary');
 
@@ -99,7 +98,51 @@ class provider implements
      * information to help with exporting.
      */
     public static function export_feedback_user_data(assign_plugin_request_data $exportdata) {
-       // Not required.
+        global $DB;
+
+        $assign = $exportdata->get_assign();
+        $grade = $exportdata->get_pluginobject();
+        $assignmentid = $assign->get_instance()->id;
+
+        // Find the submission for this grade's user.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $assignmentid,
+            'userid' => $grade->userid,
+            'latest' => 1,
+        ]);
+
+        if (!$submission) {
+            return;
+        }
+
+        // Get the AIF feedback for this submission.
+        $sql = "SELECT aiff.*
+                  FROM {assignfeedback_aif} aif
+                  JOIN {assignfeedback_aif_feedback} aiff ON aiff.aif = aif.id
+                 WHERE aif.assignment = :assignmentid
+                   AND aiff.submission = :submissionid";
+        $feedback = $DB->get_record_sql($sql, [
+            'assignmentid' => $assignmentid,
+            'submissionid' => $submission->id,
+        ]);
+
+        if ($feedback && !empty($feedback->feedback)) {
+            $currentpath = array_merge(
+                $exportdata->get_subcontext(),
+                [get_string('privacy:aipath', 'assignfeedback_aif')]
+            );
+
+            $data = (object) [
+                'feedback' => format_text(
+                    $feedback->feedback,
+                    $feedback->feedbackformat,
+                    ['context' => $exportdata->get_context()]
+                ),
+                'timecreated' => $feedback->timecreated ?
+                    \core_privacy\local\request\transform::datetime($feedback->timecreated) : '',
+            ];
+            writer::with_context($exportdata->get_context())->export_data($currentpath, $data);
+        }
     }
 
     /**
@@ -120,32 +163,72 @@ class provider implements
      */
     public static function delete_feedback_for_grade(assign_plugin_request_data $requestdata) {
         global $DB;
-        $records = $DB->get_records('assignfeedback_aif', array('assignment'=>$requestdata->get_assignid()), '', 'id');
-        foreach ($records as $record) {
-            $DB->delete_records('assignfeedback_aif_feedback', ['aif' => $record->id]);
+
+        $grade = $requestdata->get_pluginobject();
+        $assignmentid = $requestdata->get_assign()->get_instance()->id;
+
+        // Find the submission for this grade's user.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $assignmentid,
+            'userid' => $grade->userid,
+            'latest' => 1,
+        ]);
+
+        if (!$submission) {
+            return;
         }
-        $DB->delete_records('assignfeedback_aif',
-                            ['assignment' => $requestdata->get_assignid()]);
+
+        $aif = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
+        if (!$aif) {
+            return;
+        }
+
+        $DB->delete_records('assignfeedback_aif_feedback', ['aif' => $aif->id, 'submission' => $submission->id]);
     }
 
     /**
      * Deletes all feedback for the grade ids / userids provided in a context.
-     * assign_plugin_request_data contains:
-     * - context
-     * - assign object
-     * - grade ids (pluginids)
-     * - user ids
-     * @param  assign_plugin_request_data $deletedata A class that contains the relevant information required for deletion.
+     *
+     * @param assign_plugin_request_data $deletedata A class that contains the relevant information required for deletion.
      */
-    public static function delete_feedback_for_grades(assign_plugin_request_data $deletedata) {
+    public static function delete_feedback_for_grades(assign_plugin_request_data $deletedata): void {
         global $DB;
-        if (empty($deletedata->get_gradeids())) {
+
+        $gradeids = $deletedata->get_gradeids();
+        if (empty($gradeids)) {
             return;
         }
 
-        list($sql, $params) = $DB->get_in_or_equal($deletedata->get_gradeids(), SQL_PARAMS_NAMED);
+        $assignmentid = $deletedata->get_assign()->get_instance()->id;
 
-        $params['assignment'] = $deletedata->get_assignid();
-        $DB->delete_records_select('assignfeedback_aif', "assignment = :assignment AND grade $sql", $params);
+        $aif = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
+        if (!$aif) {
+            return;
+        }
+
+        // Get userids from the grades to be deleted.
+        [$insql, $inparams] = $DB->get_in_or_equal($gradeids, SQL_PARAMS_NAMED);
+        $userids = $DB->get_fieldset_sql("SELECT userid FROM {assign_grades} WHERE id $insql", $inparams);
+
+        if (empty($userids)) {
+            return;
+        }
+
+        // Get submission IDs for these users.
+        [$uinsql, $uinparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
+        $uinparams['assignmentid'] = $assignmentid;
+        $submissionids = $DB->get_fieldset_sql(
+            "SELECT id FROM {assign_submission} WHERE assignment = :assignmentid AND userid $uinsql AND latest = 1",
+            $uinparams
+        );
+
+        if (empty($submissionids)) {
+            return;
+        }
+
+        // Delete feedback only for these submissions.
+        [$sinsql, $sinparams] = $DB->get_in_or_equal($submissionids, SQL_PARAMS_NAMED);
+        $sinparams['aifid'] = $aif->id;
+        $DB->delete_records_select('assignfeedback_aif_feedback', "aif = :aifid AND submission $sinsql", $sinparams);
     }
 }

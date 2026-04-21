@@ -14,52 +14,611 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-namespace assignfeedback_aif;
-
 /**
- * Tests for AI Assisted Feedback
+ * Tests for the AI feedback plugin class (locallib).
  *
  * @package    assignfeedback_aif
  * @category   test
- * @copyright  2025 2024 Marcus Green
+ * @copyright  2024 Marcus Green
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-global $CFG;
- use mod_assign_test_generator;
- require_once($CFG->dirroot . '/mod/assign/tests/generator.php');
 
+namespace assignfeedback_aif;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once(__DIR__ . '/../../../tests/generator.php');
+require_once(__DIR__ . '/generator_trait.php');
+
+/**
+ * Tests for the AI feedback plugin class (locallib).
+ *
+ * @package    assignfeedback_aif
+ * @copyright  2024 Marcus Green
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers     \assign_feedback_aif
+ */
 final class submission_test extends \advanced_testcase {
+    use aif_test_helper;
 
-    public function test_submission() :void {
+    /**
+     * Test that the plugin can be enabled on an assignment instance.
+     *
+     * @covers ::is_enabled
+     */
+    public function test_plugin_can_be_enabled(): void {
         $this->resetAfterTest();
-        $course = $this->getDataGenerator()->create_course();
-        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
-        $generator = $this->getDataGenerator()->get_plugin_generator('mod_assign');
-        $params = [];
-        $options = [
-            'assignsubmission_onlinetext_enabled' => 1,
-            'assignfeedback_aif_enabled' => 1
+
+        $env = $this->create_test_environment();
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        $this->assertNotNull($plugin);
+        $this->assertNotEmpty($plugin->is_enabled());
+        $this->assertEquals('aif', $plugin->get_type());
+    }
+
+    /**
+     * Test save_settings inserts a new config record and updates it on second call.
+     *
+     * @covers ::save_settings
+     */
+    public function test_save_settings_creates_and_updates(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // First call: insert new config.
+        $data = new \stdClass();
+        $data->assignfeedback_aif_prompt = 'Analyse the grammar';
+        $data->assignfeedback_aif_autogenerate = 1;
+        $data->coursemodule = $env->cm->id;
+        $plugin->save_settings($data);
+
+        $record = $DB->get_record('assignfeedback_aif', ['assignment' => $env->assign->id]);
+        $this->assertNotFalse($record);
+        $this->assertEquals('Analyse the grammar', $record->prompt);
+        $this->assertEquals(1, (int) $record->autogenerate);
+
+        // Second call: update existing config.
+        $data->assignfeedback_aif_prompt = 'Updated prompt instructions';
+        $data->assignfeedback_aif_autogenerate = 0;
+        $plugin->save_settings($data);
+
+        $updated = $DB->get_record('assignfeedback_aif', ['assignment' => $env->assign->id]);
+        $this->assertEquals($record->id, $updated->id); // Same record, not a new one.
+        $this->assertEquals('Updated prompt instructions', $updated->prompt);
+        $this->assertEquals(0, (int) $updated->autogenerate);
+    }
+
+    /**
+     * Test save creates feedback and updates existing feedback for a grade.
+     *
+     * @covers ::save
+     */
+    public function test_save_creates_and_updates_feedback(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        // Create a grade for the student.
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+
+        // Insert a feedback record so save() goes through the update path.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $feedbackid = $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Initial AI feedback',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Now call save() to update the feedback via the plugin.
+        $plugin = $this->get_aif_plugin($env->assignobj);
+        $data = new \stdClass();
+        $data->assignfeedbackaif_editor = [
+            'text' => 'Teacher-edited feedback',
+            'format' => FORMAT_HTML,
+            'itemid' => file_get_unused_draft_itemid(),
         ];
 
-        $instance = $generator->create_instance((object)['course' => $course], $options);
+        $result = $plugin->save($grade, $data);
 
-
-
-        // $assign = $this->create_instance($course);
-        // $context = $assign->get_context();
-        // $this->setUser($student->id);
-        // $submission = $assign->get_user_submission($student->id, true);
-
+        $this->assertTrue($result);
+        $updated = $DB->get_record('assignfeedback_aif_feedback', ['id' => $feedbackid]);
+        $this->assertEquals('Teacher-edited feedback', $updated->feedback);
     }
-    protected function create_instance($course, $params = [], $options = []) {
-        $params['course'] = $course->id;
 
+    /**
+     * Test is_feedback_modified detects changed and unchanged feedback text.
+     *
+     * @covers ::is_feedback_modified
+     */
+    public function test_is_feedback_modified(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // No feedback exists yet — empty string vs empty string should be unmodified.
+        $data = new \stdClass();
+        $data->assignfeedbackaif_editor = ['text' => '', 'format' => FORMAT_HTML];
+        $this->assertFalse($plugin->is_feedback_modified($grade, $data));
+
+        // Empty string vs new text should be modified.
+        $data->assignfeedbackaif_editor = ['text' => 'New feedback', 'format' => FORMAT_HTML];
+        $this->assertTrue($plugin->is_feedback_modified($grade, $data));
+    }
+
+    /**
+     * Test get_feedbackaif returns the record or false.
+     *
+     * @covers ::get_feedbackaif
+     */
+    public function test_get_feedbackaif(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // No feedback yet — should return false.
+        $result = $plugin->get_feedbackaif($env->assign->id, $env->student->id);
+        $this->assertFalse($result);
+
+        // Insert feedback.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Generated feedback content',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Should now return the feedback record.
+        $result = $plugin->get_feedbackaif($env->assign->id, $env->student->id);
+        $this->assertNotFalse($result);
+        $this->assertEquals('Generated feedback content', $result->feedback);
+    }
+
+    /**
+     * Test view and view_summary return formatted feedback or empty string.
+     *
+     * @covers ::view
+     * @covers ::view_summary
+     */
+    public function test_view_and_view_summary(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // No feedback — should return empty.
+        $this->assertEquals('', $plugin->view($grade));
+
+        $showviewlink = false;
+        $this->assertEquals('', $plugin->view_summary($grade, $showviewlink));
+
+        // Insert feedback.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => '<p>Well done on your essay.</p>',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Should now return formatted feedback.
+        $viewresult = $plugin->view($grade);
+        $this->assertStringContainsString('Well done on your essay.', $viewresult);
+
+        $summaryresult = $plugin->view_summary($grade, $showviewlink);
+        $this->assertStringContainsString('Well done on your essay.', $summaryresult);
+    }
+
+    /**
+     * Test text_for_gradebook returns raw feedback text or empty string.
+     *
+     * @covers ::text_for_gradebook
+     */
+    public function test_text_for_gradebook(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // No feedback — empty string.
+        $this->assertEquals('', $plugin->text_for_gradebook($grade));
+
+        // Insert feedback.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Gradebook feedback text',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        $this->assertEquals('Gradebook feedback text', $plugin->text_for_gradebook($grade));
+    }
+
+    /**
+     * Test delete_instance cascades deletion to both config and feedback tables.
+     *
+     * @covers ::delete_instance
+     */
+    public function test_delete_instance_cascading(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+
+        // The AIF config record was already created by save_settings during create_instance.
+        $aifrecord = $DB->get_record('assignfeedback_aif', ['assignment' => $env->assign->id]);
+        $this->assertNotFalse($aifrecord);
+        $aifid = $aifrecord->id;
+
+        // Insert feedback record.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Feedback to delete',
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Verify records exist.
+        $this->assertEquals(1, $DB->count_records('assignfeedback_aif', ['assignment' => $env->assign->id]));
+        $this->assertEquals(1, $DB->count_records('assignfeedback_aif_feedback', ['aif' => $aifid]));
+
+        // Delete instance.
+        $plugin = $this->get_aif_plugin($env->assignobj);
+        $result = $plugin->delete_instance();
+
+        $this->assertTrue($result);
+        $this->assertEquals(0, $DB->count_records('assignfeedback_aif', ['assignment' => $env->assign->id]));
+        $this->assertEquals(0, $DB->count_records('assignfeedback_aif_feedback', ['aif' => $aifid]));
+    }
+
+    /**
+     * Test is_empty reflects whether feedback exists for a grade.
+     *
+     * @covers ::is_empty
+     */
+    public function test_is_empty(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // No feedback — should be empty.
+        $this->assertTrue($plugin->is_empty($grade));
+
+        // Insert feedback.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Non-empty feedback',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Should not be empty now.
+        $this->assertFalse($plugin->is_empty($grade));
+    }
+
+    /**
+     * Test get_editor_text and set_editor_text roundtrip for import/export.
+     *
+     * @covers ::get_editor_text
+     * @covers ::set_editor_text
+     */
+    public function test_editor_text_roundtrip(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // Insert feedback so the record exists.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => 'Original text',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        // Get_editor_text should return the current feedback.
+        $this->assertEquals('Original text', $plugin->get_editor_text('aif', $grade->id));
+
+        // Set_editor_text should update it.
+        $result = $plugin->set_editor_text('aif', 'Updated via import', $grade->id);
+        $this->assertTrue($result);
+        $this->assertEquals('Updated via import', $plugin->get_editor_text('aif', $grade->id));
+
+        // Invalid field name should return empty/false.
+        $this->assertEquals('', $plugin->get_editor_text('invalid', $grade->id));
+        $this->assertFalse($plugin->set_editor_text('invalid', 'test', $grade->id));
+    }
+
+    /**
+     * Test that batch delete removes feedback for all selected users.
+     *
+     * @covers ::grading_batch_operation
+     */
+    public function test_batch_delete_multiple_users(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        // Create two additional students and enrol them.
+        $student2 = $this->getDataGenerator()->create_and_enrol($env->course, 'student');
+        $student3 = $this->getDataGenerator()->create_and_enrol($env->course, 'student');
+
+        // Create submissions for all three students.
         $generator = $this->getDataGenerator()->get_plugin_generator('mod_assign');
-        $instance = $generator->create_instance($params, $options);
-        $cm = get_coursemodule_from_instance('assign', $instance->id);
-        $context = context_module::instance($cm->id);
+        foreach ([$env->student, $student2, $student3] as $student) {
+            $this->setUser($student);
+            $generator->create_submission([
+                'cmid' => $env->cm->id,
+                'userid' => $student->id,
+                'onlinetext' => 'Submission by user ' . $student->id,
+            ]);
+            $sink = $this->redirectMessages();
+            $env->assignobj->submit_for_grading((object) ['userid' => $student->id], []);
+            $sink->close();
+        }
 
-        return new mod_assign_testable_assign($context, $cm, $course);
+        // Set up the AIF config.
+        $aifid = $this->create_aif_config($env);
+
+        // Insert feedback records for all three students.
+        $clock = \core\di::get(\core\clock::class);
+        $userids = [$env->student->id, $student2->id, $student3->id];
+        foreach ($userids as $userid) {
+            $submission = $DB->get_record('assign_submission', [
+                'assignment' => $env->assign->id,
+                'userid' => $userid,
+                'latest' => 1,
+            ]);
+            $DB->insert_record('assignfeedback_aif_feedback', [
+                'aif' => $aifid,
+                'feedback' => 'AI feedback for user ' . $userid,
+                'feedbackformat' => FORMAT_HTML,
+                'submission' => $submission->id,
+                'timecreated' => $clock->now()->getTimestamp(),
+            ]);
+        }
+
+        // Verify all three feedback records exist.
+        $this->assertEquals(3, $DB->count_records('assignfeedback_aif_feedback', ['aif' => $aifid]));
+
+        // Delete feedback for all three users via the utility method.
+        $this->setUser($env->teacher);
+        \assignfeedback_aif\local\feedback_utils::delete_feedback_for_users($env->assign->id, $userids);
+
+        // All feedback records must be gone.
+        $this->assertEquals(0, $DB->count_records('assignfeedback_aif_feedback', ['aif' => $aifid]));
     }
 
+    /**
+     * Test view_summary shows error with retry button for failed feedback.
+     *
+     * @covers ::view_summary
+     */
+    public function test_view_summary_error_shows_retry(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // Insert a feedback record with an error marker in skippedfiles.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => '',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'skippedfiles' => json_encode([['_error' => 'AI quota exceeded']]),
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        $showviewlink = false;
+        $result = $plugin->view_summary($grade, $showviewlink);
+
+        // Should contain the error message and a retry button.
+        $this->assertStringContainsString('AI quota exceeded', $result);
+        $this->assertStringContainsString('data-action="retry-aif"', $result);
+        $this->assertStringContainsString(
+            'data-assignmentid="' . $env->assign->id . '"',
+            $result
+        );
+    }
+
+    /**
+     * Test view shows error with retry button for failed feedback.
+     *
+     * @covers ::view
+     */
+    public function test_view_error_shows_retry(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // Insert error feedback.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => '',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'skippedfiles' => json_encode([['_error' => 'Connection timeout']]),
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        $result = $plugin->view($grade);
+
+        $this->assertStringContainsString('Connection timeout', $result);
+        $this->assertStringContainsString('data-action="retry-aif"', $result);
+    }
+
+    /**
+     * Test view shows skipped files warning when feedback contains skipped files.
+     *
+     * @covers ::view
+     */
+    public function test_view_skipped_files_warning(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env);
+        $aifid = $this->create_aif_config($env);
+
+        $this->setUser($env->teacher);
+        $grade = $env->assignobj->get_user_grade($env->student->id, true);
+        $plugin = $this->get_aif_plugin($env->assignobj);
+
+        // Insert feedback with skipped files.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $clock = \core\di::get(\core\clock::class);
+        $DB->insert_record('assignfeedback_aif_feedback', [
+            'aif' => $aifid,
+            'feedback' => '<p>Partial feedback.</p>',
+            'feedbackformat' => FORMAT_HTML,
+            'submission' => $submission->id,
+            'skippedfiles' => json_encode([
+                ['filename' => 'image.png', 'reason' => 'skipreason_conversionnotsupported', 'reasondata' => 'pdf, docx'],
+            ]),
+            'timecreated' => $clock->now()->getTimestamp(),
+        ]);
+
+        $result = $plugin->view($grade);
+
+        $this->assertStringContainsString('Partial feedback.', $result);
+        $this->assertStringContainsString('image.png', $result);
+    }
+
+    /**
+     * Get the AIF feedback plugin from an assign instance.
+     *
+     * @param \mod_assign_testable_assign $assignobj The testable assign instance.
+     * @return \assign_feedback_aif The AIF feedback plugin.
+     */
+    private function get_aif_plugin(\mod_assign_testable_assign $assignobj): \assign_feedback_aif {
+        $plugins = $assignobj->get_feedback_plugins();
+        foreach ($plugins as $plugin) {
+            if ($plugin->get_type() === 'aif') {
+                return $plugin;
+            }
+        }
+        $this->fail('AIF feedback plugin not found on assignment.');
+    }
 }

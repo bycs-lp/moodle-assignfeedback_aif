@@ -15,11 +15,11 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Event observers for AI Assisted Feedback
+ * Event observers for AI Assisted Feedback.
  *
  * @package    assignfeedback_aif
  * @category   event
- * @copyright  2024 2024 Marcus Green
+ * @copyright  2024 Marcus Green
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -27,11 +27,20 @@ defined('MOODLE_INTERNAL') || die();
 
 $observers = [
         [
-            'eventname'   => '\mod_assign\event\submission_created',
-            'callback'    => '\assignfeedback_aif\event\observer::submission_created',
+            'eventname'   => '\mod_assign\event\assessable_submitted',
+            'callback'    => '\assignfeedback_aif\event\observer::assessable_submitted',
         ],
         [
             'eventname'   => '\mod_assign\event\submission_removed',
             'callback'    => '\assignfeedback_aif\event\observer::submission_removed',
-        ]
+        ],
+
+        [
+            'eventname'   => '\assignsubmission_onlinetext\event\submission_updated',
+            'callback'    => '\assignfeedback_aif\event\observer::submission_updated',
+        ],
+        [
+            'eventname'   => '\assignsubmission_file\event\submission_updated',
+            'callback'    => '\assignfeedback_aif\event\observer::submission_updated',
+        ],
     ];
