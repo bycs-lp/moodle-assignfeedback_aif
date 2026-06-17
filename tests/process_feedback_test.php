@@ -638,4 +638,86 @@ final class process_feedback_test extends \advanced_testcase {
             'Adhoc task must be queued for new feedback generation'
         );
     }
+
+    /**
+     * Test the adhoc task stores the error when intro attachment extraction fails.
+     *
+     * When an intro attachment PDF cannot be converted because the AI backend rejects
+     * the ITT request (e.g. terms of use not confirmed), get_prompt() throws and the
+     * adhoc task must persist the error as an error feedback record so the teacher can
+     * see what went wrong.
+     *
+     * @covers \assignfeedback_aif\task\process_feedback_adhoc::execute
+     */
+    public function test_adhoc_task_stores_error_when_introattachment_extraction_fails(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        // Override the default AI mock so every ITT request fails as if rejected by the backend.
+        $backenderror = new \moodle_exception(
+            'err_retrievingfeedback',
+            'assignfeedback_aif',
+            '',
+            'AI backend rejected the request'
+        );
+        $providermock = $this->createMock(\assignfeedback_aif\local\ai_request_provider::class);
+        $providermock->method('perform_request_core_ai')->willThrowException($backenderror);
+        $providermock->method('perform_request_local_ai_manager')->willThrowException($backenderror);
+        $providermock->method('is_available')->willReturn(true);
+        \core\di::set(\assignfeedback_aif\local\ai_request_provider::class, $providermock);
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env, 'My essay about renewable energy');
+        $this->create_aif_config($env, 'Analyse the submission');
+
+        // Add a PDF intro attachment (teacher-owned) so ITT extraction is triggered.
+        get_file_storage()->create_file_from_string([
+            'contextid' => $env->context->id,
+            'component' => 'mod_assign',
+            'filearea' => 'introattachment',
+            'itemid' => 0,
+            'filepath' => '/',
+            'filename' => 'instructions.pdf',
+            'userid' => $env->teacher->id,
+        ], 'fake pdf content');
+
+        // Register a partial-mock aif so PDF rendering yields one page image without ghostscript.
+        $aifmock = $this->getMockBuilder(\assignfeedback_aif\aif::class)
+            ->onlyMethods(['convert_pdf_to_images'])
+            ->getMock();
+        $aifmock->method('convert_pdf_to_images')
+            ->willReturn(['data:image/png;base64,' . base64_encode('img')]);
+        \core\di::set(\assignfeedback_aif\aif::class, $aifmock);
+
+        $task = new process_feedback_adhoc();
+        $task->set_custom_data([
+            'assignment' => $env->assign->id,
+            'users' => [$env->student->id],
+            'action' => 'generate',
+            'triggeredby' => 'manual',
+        ]);
+
+        ob_start();
+        $task->execute();
+        ob_end_clean();
+
+        // The task must have stored exactly one error feedback record for the submission.
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+        $feedback = $DB->get_record('assignfeedback_aif_feedback', ['submission' => $submission->id]);
+        $this->assertNotFalse($feedback, 'An error feedback record must be stored on extraction failure.');
+
+        // The error must be encoded as a _error entry in the skippedfiles JSON.
+        $this->assertNotEmpty($feedback->skippedfiles);
+        $skipped = json_decode($feedback->skippedfiles, true);
+        $errorentry = reset($skipped);
+        $this->assertArrayHasKey('_error', $errorentry);
+        $this->assertStringContainsString('AI backend rejected the request', $errorentry['_error']);
+
+        // No actual feedback text should be stored when generation fails.
+        $this->assertSame('', $feedback->feedback);
+    }
 }

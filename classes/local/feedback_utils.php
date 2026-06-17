@@ -149,6 +149,8 @@ class feedback_utils {
 
         // Find queued adhoc tasks for this class.
         $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
+        // Reverse to find the most recently queued task first.
+        $tasks = array_reverse($tasks);
         foreach ($tasks as $task) {
             $data = $task->get_custom_data();
             if (

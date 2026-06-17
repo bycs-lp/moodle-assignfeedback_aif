@@ -166,7 +166,9 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         ]);
 
         // Use the context from the submission for proper permission checks.
-        $aif = new \assignfeedback_aif\aif($record->contextid);
+        // Resolve through DI so the handler can be replaced in tests.
+        $aif = \core\di::get(\assignfeedback_aif\aif::class);
+        $aif->set_contextid($record->contextid);
 
         // Step 2: Extracting submission content (30%).
         $this->report_substep($slicestart, $slicesize, 30, 'progressstepextracting');
@@ -176,7 +178,13 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         $gradingmanager = get_grading_manager($context, 'mod_assign', 'submissions');
         $gradingmethod = $gradingmanager->get_active_method() ?: 'simple';
 
-        $promptdata = $aif->get_prompt($record, $gradingmethod);
+        try {
+            $promptdata = $aif->get_prompt($record, $gradingmethod);
+        } catch (\Exception $e) {
+            $this->save_error_feedback($record, $e->getMessage());
+            mtrace("Failed to build prompt for submission {$record->subid}: " . $e->getMessage());
+            return $e->getMessage();
+        }
         if (empty($promptdata['prompt'])) {
             // Build an informative error message including skipped file details.
             $errormsg = get_string('erroremptysubmission', 'assignfeedback_aif');

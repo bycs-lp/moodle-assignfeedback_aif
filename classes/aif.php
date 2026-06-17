@@ -18,6 +18,7 @@ namespace assignfeedback_aif;
 
 use assignfeedback_aif\local\ai_request_provider;
 use assignfeedback_editpdf\pdf;
+use core\exception\moodle_exception;
 use stdClass;
 
 /**
@@ -34,10 +35,54 @@ class aif {
     /**
      * Constructor.
      *
+     * The context ID is optional so the class can be resolved through the
+     * dependency injection container (\core\di::get()), which requires a
+     * parameterless construction. When resolved via DI, set the context ID
+     * afterwards with {@see self::set_contextid()}.
+     *
      * @param int $contextid The context ID.
      */
-    public function __construct(int $contextid) {
+    public function __construct(int $contextid = 0) {
         $this->contextid = $contextid;
+    }
+
+    /**
+     * Set the context ID used for AI requests.
+     *
+     * Needed when the instance is resolved through the DI container, which
+     * cannot autowire the scalar context ID constructor argument.
+     *
+     * @param int $contextid The context ID.
+     */
+    public function set_contextid(int $contextid): void {
+        $this->contextid = $contextid;
+    }
+
+    /**
+     * Set the user ID for AI requests, switching the global $USER context if necessary.
+     *
+     * @param int|null $requestuserid The user ID to use for AI requests, null means use current $USER.
+     */
+    protected function setup_user(?int $requestuserid): void {
+        global $USER;
+
+        if (empty($requestuserid)) {
+            \core\cron::setup_user();
+            return;
+        }
+
+        // Only switch, when necessary.
+        if ($USER->id === $requestuserid) {
+            return;
+        }
+
+        // Check if user exists.
+        if (!$user = \core\user::get_user($requestuserid)) {
+            return;
+        }
+
+        // If user is different and exists, switch to it.
+        \core\cron::setup_user($user);
     }
 
     /**
@@ -638,6 +683,7 @@ class aif {
         }
 
         $alltext = '';
+        $firsterror = null;
         foreach ($files as $file) {
             if (!$file instanceof \stored_file) {
                 continue;
@@ -653,18 +699,43 @@ class aif {
                 continue;
             }
 
-            if ($mimetype === 'application/pdf') {
-                $extractedtext = $this->extract_content_from_pdf($file);
+            // Switch session to the file owner (teacher) so that all ITT requests
+            // are done under their identity. This is necessary for ToS checks,
+            // quota attribution and capability checks.
+            $this->setup_user($file->get_userid());
+            try {
+                if ($mimetype === 'application/pdf') {
+                    $extractedtext = $this->extract_content_from_pdf($file);
+                    if (!empty($extractedtext)) {
+                        $alltext .= "[{$filename}]\n" . $extractedtext . "\n";
+                    }
+                    continue;
+                }
+
+                $extractedtext = $this->extract_content_via_converter($file);
                 if (!empty($extractedtext)) {
                     $alltext .= "[{$filename}]\n" . $extractedtext . "\n";
                 }
-                continue;
+            } catch (\Exception $e) {
+                mtrace("Failed to extract text from introattachment file '{$filename}': " . $e->getMessage());
+                if ($firsterror === null) {
+                    $firsterror = $e;
+                }
             }
+        }
 
-            $extractedtext = $this->extract_content_via_converter($file);
-            if (!empty($extractedtext)) {
-                $alltext .= "[{$filename}]\n" . $extractedtext . "\n";
-            }
+        // Switch back to default user context before throwing.
+        $this->setup_user(null);
+
+        // If any AI requests failed, throw the first error so the caller
+        // can report the actual AI backend error message to the user.
+        if ($firsterror !== null) {
+            throw new moodle_exception(
+                'failedtoextractintroattachmentfiles',
+                'assignfeedback_aif',
+                '',
+                $firsterror->getMessage()
+            );
         }
 
         return trim($alltext);
