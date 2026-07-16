@@ -159,11 +159,35 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         // Step 1: Preparing submission data (10%).
         $this->report_substep($slicestart, $slicesize, 10, 'progresssteppreparing');
 
-        // Delete existing feedback for this submission to allow regeneration.
-        $DB->delete_records('assignfeedback_aif_feedback', [
+        // Replace any existing feedback with a 'pending' lock record.
+        // This ensures that even if the task crashes fatally, the record will not
+        // be stuck in limbo (no record + autogenerate = infinite pending).
+        $clock = \core\di::get(\core\clock::class);
+        $now = $clock->now()->getTimestamp();
+        $existing = $DB->get_record('assignfeedback_aif_feedback', [
             'aif' => $record->aifid,
             'submission' => $record->subid,
         ]);
+        if ($existing) {
+            $existing->status = 'pending';
+            $existing->errormessage = null;
+            $existing->feedback = '';
+            $existing->timemodified = $now;
+            $DB->update_record('assignfeedback_aif_feedback', $existing);
+        } else {
+            $lockrecord = (object) [
+                'aif' => $record->aifid,
+                'submission' => $record->subid,
+                'feedback' => '',
+                'feedbackformat' => FORMAT_HTML,
+                'status' => 'pending',
+                'errormessage' => null,
+                'timecreated' => $now,
+                'timemodified' => $now,
+                'skippedfiles' => null,
+            ];
+            $DB->insert_record('assignfeedback_aif_feedback', $lockrecord);
+        }
 
         // Use the context from the submission for proper permission checks.
         // Resolve through DI so the handler can be replaced in tests.
@@ -269,15 +293,38 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         }
 
         $clock = \core\di::get(\core\clock::class);
-        $data = (object) [
+        $now = $clock->now()->getTimestamp();
+
+        // Update the pending lock record with the actual feedback.
+        $feedbackrecord = $DB->get_record('assignfeedback_aif_feedback', [
             'aif' => $record->aifid,
-            'feedback' => $aifeedbackhtml,
-            'feedbackformat' => FORMAT_HTML,
-            'timecreated' => $clock->now()->getTimestamp(),
             'submission' => $record->subid,
-            'skippedfiles' => !empty($promptdata['skippedfiles']) ? json_encode($promptdata['skippedfiles']) : null,
-        ];
-        $DB->insert_record('assignfeedback_aif_feedback', $data);
+        ]);
+        if ($feedbackrecord) {
+            $feedbackrecord->feedback = $aifeedbackhtml;
+            $feedbackrecord->feedbackformat = FORMAT_HTML;
+            $feedbackrecord->status = 'completed';
+            $feedbackrecord->errormessage = null;
+            $feedbackrecord->timemodified = $now;
+            $feedbackrecord->skippedfiles = !empty($promptdata['skippedfiles'])
+                ? json_encode($promptdata['skippedfiles']) : null;
+            $DB->update_record('assignfeedback_aif_feedback', $feedbackrecord);
+        } else {
+            // Fallback: record was unexpectedly removed, re-create it.
+            $data = (object) [
+                'aif' => $record->aifid,
+                'feedback' => $aifeedbackhtml,
+                'feedbackformat' => FORMAT_HTML,
+                'status' => 'completed',
+                'errormessage' => null,
+                'timecreated' => $now,
+                'timemodified' => $now,
+                'submission' => $record->subid,
+                'skippedfiles' => !empty($promptdata['skippedfiles'])
+                    ? json_encode($promptdata['skippedfiles']) : null,
+            ];
+            $DB->insert_record('assignfeedback_aif_feedback', $data);
+        }
 
         // Ensure a grade record exists so students can see feedback in the submission view.
         $this->ensure_grade_record($record, $assign);

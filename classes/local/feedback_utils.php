@@ -121,6 +121,31 @@ class feedback_utils {
         // Check if a pending record exists.
         $record = self::get_feedbackaif($assignmentid, $userid);
         if ($record && !empty($record->status) && $record->status === 'pending') {
+            // Verify the adhoc task is still queued. If not, the task crashed
+            // and we should mark the record as error to avoid an infinite pending state.
+            if (self::get_running_progress_id($assignmentid, $userid) === 0) {
+                // No running task found — check if there is any queued task at all.
+                $taskclass = \assignfeedback_aif\task\process_feedback_adhoc::class;
+                $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
+                $taskfound = false;
+                foreach ($tasks as $task) {
+                    $data = $task->get_custom_data();
+                    if (
+                        isset($data->assignment) && (int) $data->assignment === $assignmentid
+                        && isset($data->users) && in_array($userid, (array) $data->users)
+                    ) {
+                        $taskfound = true;
+                        break;
+                    }
+                }
+                if (!$taskfound) {
+                    // Task is gone — mark as error so the teacher can see what happened.
+                    $record->status = 'error';
+                    $record->errormessage = get_string('errortaskcrashed', 'assignfeedback_aif');
+                    $DB->update_record('assignfeedback_aif_feedback', $record);
+                    return false;
+                }
+            }
             return true;
         }
 
