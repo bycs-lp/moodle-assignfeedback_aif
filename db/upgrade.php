@@ -142,5 +142,75 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026040102, 'assignfeedback', 'aif');
     }
 
+    if ($oldversion < 2026071600) {
+        $table = new xmldb_table('assignfeedback_aif_feedback');
+
+        // Step 1: Remove duplicates — keep only the newest record per (aif, submission).
+        $sql = "SELECT aif, submission, MAX(id) AS keepid
+                  FROM {assignfeedback_aif_feedback}
+                 WHERE aif IS NOT NULL AND submission IS NOT NULL
+              GROUP BY aif, submission
+                HAVING COUNT(*) > 1";
+        $duplicates = $DB->get_records_sql($sql);
+        foreach ($duplicates as $dup) {
+            $DB->delete_records_select(
+                'assignfeedback_aif_feedback',
+                'aif = :aif AND submission = :submission AND id <> :keepid',
+                ['aif' => $dup->aif, 'submission' => $dup->submission, 'keepid' => $dup->keepid]
+            );
+        }
+
+        // Step 2: Add status field.
+        $field = new xmldb_field('status', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'pending', 'feedbackformat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Step 3: Add errormessage field.
+        $field = new xmldb_field('errormessage', XMLDB_TYPE_TEXT, null, null, null, null, null, 'status');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Step 4: Migrate existing records — completed records (non-empty feedback).
+        $DB->execute(
+            "UPDATE {assignfeedback_aif_feedback}
+                SET status = 'completed'
+              WHERE feedback IS NOT NULL AND feedback <> ''"
+        );
+
+        // Step 5: Migrate error records — those with _error in skippedfiles.
+        $errorrecords = $DB->get_records_select(
+            'assignfeedback_aif_feedback',
+            "skippedfiles LIKE :pattern AND (feedback IS NULL OR feedback = '')",
+            ['pattern' => '%_error%']
+        );
+        foreach ($errorrecords as $rec) {
+            $skipped = json_decode($rec->skippedfiles, true);
+            $errormsg = '';
+            if (is_array($skipped)) {
+                foreach ($skipped as $entry) {
+                    if (is_array($entry) && isset($entry['_error'])) {
+                        $errormsg = $entry['_error'];
+                        break;
+                    }
+                }
+            }
+            $DB->update_record('assignfeedback_aif_feedback', (object) [
+                'id' => $rec->id,
+                'status' => 'error',
+                'errormessage' => $errormsg,
+            ]);
+        }
+
+        // Step 6: Add UNIQUE INDEX on (aif, submission).
+        $index = new xmldb_index('idx_aif_submission', XMLDB_INDEX_UNIQUE, ['aif', 'submission']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_plugin_savepoint(true, 2026071600, 'assignfeedback', 'aif');
+    }
+
     return true;
 }

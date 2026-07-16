@@ -163,12 +163,18 @@ class retry_feedback extends external_api {
     }
 
     /**
-     * Check whether a feedback record contains an error marker in skippedfiles.
+     * Check whether a feedback record is in error state.
      *
      * @param \stdClass $record The feedback record.
-     * @return bool True if the record has an error marker.
+     * @return bool True if the record has an error status.
      */
     private static function has_error_marker(\stdClass $record): bool {
+        // New status-based detection.
+        if (!empty($record->status) && $record->status === 'error') {
+            return true;
+        }
+
+        // Legacy fallback: check skippedfiles JSON for _error marker.
         if (empty($record->skippedfiles)) {
             return false;
         }

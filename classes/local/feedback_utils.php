@@ -106,8 +106,9 @@ class feedback_utils {
     /**
      * Check whether AI feedback generation is pending for a submission.
      *
-     * Feedback is considered pending when autogenerate is enabled for this
-     * assignment and a submitted submission exists but no feedback record yet.
+     * Feedback is considered pending when a record with status='pending' exists
+     * for this assignment and user's latest submission. Also returns true when
+     * autogenerate is enabled but no record exists yet (task not yet queued).
      *
      * @param int $assignmentid The assignment ID.
      * @param int $userid The user ID.
@@ -117,19 +118,26 @@ class feedback_utils {
         global $DB;
         self::ensure_config_exists($assignmentid);
 
-        // Check autogenerate is enabled.
-        $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
-        if (!$aifconfig || empty($aifconfig->autogenerate)) {
-            return false;
+        // Check if a pending record exists.
+        $record = self::get_feedbackaif($assignmentid, $userid);
+        if ($record && !empty($record->status) && $record->status === 'pending') {
+            return true;
         }
 
-        // Check a submitted submission exists.
-        return $DB->record_exists('assign_submission', [
-            'assignment' => $assignmentid,
-            'userid' => $userid,
-            'status' => 'submitted',
-            'latest' => 1,
-        ]);
+        // Fallback: no record yet, but autogenerate is enabled and submission exists.
+        if (!$record) {
+            $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
+            if ($aifconfig && !empty($aifconfig->autogenerate)) {
+                return $DB->record_exists('assign_submission', [
+                    'assignment' => $assignmentid,
+                    'userid' => $userid,
+                    'status' => 'submitted',
+                    'latest' => 1,
+                ]);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -172,11 +180,10 @@ class feedback_utils {
     }
 
     /**
-     * Extract error message from a feedback record's skippedfiles JSON.
+     * Extract error message from a feedback record.
      *
-     * Error feedback records are stored with a special '_error' key in the
-     * skippedfiles JSON when feedback generation fails. This allows the error
-     * to persist and be visible even after the adhoc task has been cleaned up.
+     * Returns the error message from the status/errormessage fields.
+     * Falls back to legacy skippedfiles parsing for records not yet migrated.
      *
      * @param \stdClass $record The feedback record.
      * @return string|null The error message, or null if no error.
@@ -184,6 +191,13 @@ class feedback_utils {
     public static function get_error_from_feedback(\stdClass $record): ?string {
         global $CFG;
 
+        // New status-based error detection.
+        if (!empty($record->status) && $record->status === 'error') {
+            $errormsg = $record->errormessage ?? '';
+            return get_string('feedbackgenerationerror', 'assignfeedback_aif', $errormsg);
+        }
+
+        // Legacy fallback: parse _error from skippedfiles JSON.
         if (empty($record->skippedfiles)) {
             return null;
         }
@@ -232,6 +246,8 @@ class feedback_utils {
     /**
      * Save or update a per-user feedback record.
      *
+     * Sets the record status to 'completed' and clears any previous error.
+     *
      * @param int $assignmentid The assignment instance ID.
      * @param int $userid The user ID whose feedback is being saved.
      * @param string $feedback The feedback HTML text.
@@ -252,6 +268,8 @@ class feedback_utils {
             $record->timemodified = $clock->now()->getTimestamp();
             $record->feedback = $feedback;
             $record->feedbackformat = $feedbackformat;
+            $record->status = 'completed';
+            $record->errormessage = null;
             $DB->update_record('assignfeedback_aif_feedback', $record);
         } else {
             $aif = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
@@ -272,7 +290,10 @@ class feedback_utils {
             $newrecord->submission = $submission ? $submission->id : null;
             $newrecord->feedback = $feedback;
             $newrecord->feedbackformat = $feedbackformat;
+            $newrecord->status = 'completed';
+            $newrecord->errormessage = null;
             $newrecord->timecreated = $clock->now()->getTimestamp();
+            $newrecord->timemodified = $clock->now()->getTimestamp();
             $DB->insert_record('assignfeedback_aif_feedback', $newrecord);
         }
         return true;

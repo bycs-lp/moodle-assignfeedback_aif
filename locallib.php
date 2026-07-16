@@ -458,7 +458,7 @@ class assign_feedback_aif extends assign_feedback_plugin {
     public function view_summary(stdClass $submissionorgrade, &$showviewlink): string {
         $record = $this->get_feedbackaif($submissionorgrade->assignment, $submissionorgrade->userid);
         if ($record) {
-            // Check for error marker in skippedfiles.
+            // Check for error status.
             $errormsg = $this->get_error_from_feedback($record);
             if ($errormsg !== null) {
                 return \assignfeedback_aif\local\output_helper::render_error_with_retry(
@@ -467,6 +467,25 @@ class assign_feedback_aif extends assign_feedback_plugin {
                     $submissionorgrade->userid
                 );
             }
+            // Pending status — show spinner.
+            if (!empty($record->status) && $record->status === 'pending') {
+                $progressid = $this->get_running_progress_id(
+                    $submissionorgrade->assignment,
+                    $submissionorgrade->userid
+                );
+                if ($progressid > 0) {
+                    return \assignfeedback_aif\local\output_helper::render_generating_progress(
+                        $submissionorgrade->assignment,
+                        $submissionorgrade->userid,
+                        $progressid
+                    );
+                }
+                return \assignfeedback_aif\local\output_helper::render_generating_spinner(
+                    $submissionorgrade->assignment,
+                    $submissionorgrade->userid
+                );
+            }
+            // Completed — show feedback.
             $format = $record->feedbackformat ?? FORMAT_HTML;
             $text = format_text($record->feedback, $format, [
                 'context' => $this->assignment->get_context(),
@@ -477,7 +496,7 @@ class assign_feedback_aif extends assign_feedback_plugin {
             return \assignfeedback_aif\local\output_helper::render_warningbox() . $shorttext;
         }
 
-        // No feedback yet — check for running task with stored progress or pending autogenerate.
+        // No record yet — check for running task with stored progress or pending autogenerate.
         $progressid = $this->get_running_progress_id($submissionorgrade->assignment, $submissionorgrade->userid);
         if ($progressid > 0) {
             return \assignfeedback_aif\local\output_helper::render_generating_progress(
@@ -530,11 +549,19 @@ class assign_feedback_aif extends assign_feedback_plugin {
             return '';
         }
 
-        // Check for error marker in skippedfiles.
+        // Check for error status.
         $errormsg = $this->get_error_from_feedback($record);
         if ($errormsg !== null) {
             return \assignfeedback_aif\local\output_helper::render_error_with_retry(
                 $errormsg,
+                $submissionorgrade->assignment,
+                $submissionorgrade->userid
+            );
+        }
+
+        // Pending status — show spinner in full view too.
+        if (!empty($record->status) && $record->status === 'pending') {
+            return \assignfeedback_aif\local\output_helper::render_generating_spinner(
                 $submissionorgrade->assignment,
                 $submissionorgrade->userid
             );
@@ -631,10 +658,10 @@ class assign_feedback_aif extends assign_feedback_plugin {
     }
 
     /**
-     * Returns true if there are no AI feedback entries for the given grade.
+     * Return true if there is no AI feedback to display.
      *
-     * Also returns false when feedback generation is pending so that the
-     * feedback section is rendered and the spinner can be displayed.
+     * Returns false when a record exists (any status) or when feedback
+     * generation is pending, so the feedback section is rendered.
      *
      * @param stdClass $submissionorgrade The grade object.
      * @return bool True if no feedback exists and none is pending.

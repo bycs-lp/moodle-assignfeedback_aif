@@ -710,12 +710,10 @@ final class process_feedback_test extends \advanced_testcase {
         $feedback = $DB->get_record('assignfeedback_aif_feedback', ['submission' => $submission->id]);
         $this->assertNotFalse($feedback, 'An error feedback record must be stored on extraction failure.');
 
-        // The error must be encoded as a _error entry in the skippedfiles JSON.
-        $this->assertNotEmpty($feedback->skippedfiles);
-        $skipped = json_decode($feedback->skippedfiles, true);
-        $errorentry = reset($skipped);
-        $this->assertArrayHasKey('_error', $errorentry);
-        $this->assertStringContainsString('AI backend rejected the request', $errorentry['_error']);
+        // The error must be stored in the status and errormessage fields.
+        $this->assertEquals('error', $feedback->status);
+        $this->assertNotEmpty($feedback->errormessage);
+        $this->assertStringContainsString('AI backend rejected the request', $feedback->errormessage);
 
         // No actual feedback text should be stored when generation fails.
         $this->assertSame('', $feedback->feedback);
