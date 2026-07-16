@@ -132,7 +132,7 @@ class feedback_utils {
                     $data = $task->get_custom_data();
                     if (
                         isset($data->assignment) && (int) $data->assignment === $assignmentid
-                        && isset($data->users) && in_array($userid, (array) $data->users)
+                        && isset($data->userid) && (int) $data->userid === $userid
                     ) {
                         $taskfound = true;
                         break;
@@ -188,7 +188,7 @@ class feedback_utils {
             $data = $task->get_custom_data();
             if (
                 isset($data->assignment) && (int) $data->assignment === $assignmentid
-                && isset($data->users) && in_array($userid, (array) $data->users)
+                && isset($data->userid) && (int) $data->userid === $userid
             ) {
                 // Found a matching task — look up its stored_progress record.
                 $idnumber = stored_progress_bar::convert_to_idnumber(

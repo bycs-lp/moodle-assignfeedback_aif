@@ -163,7 +163,7 @@ class check_feedback_status extends external_api {
             $data = $task->get_custom_data();
             if (
                 isset($data->assignment) && (int) $data->assignment === $assignmentid
-                && isset($data->users) && in_array($userid, (array) $data->users)
+                && isset($data->userid) && (int) $data->userid === $userid
             ) {
                 $idnumber = stored_progress_bar::convert_to_idnumber(
                     $taskclass . '_' . $task->get_id()

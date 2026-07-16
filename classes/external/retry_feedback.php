@@ -116,26 +116,26 @@ class retry_feedback extends external_api {
             'submission' => $submission->id,
         ]);
 
-        // Queue the ad-hoc task with a unique marker for retrieval.
-        $triggeredby = $isteacher ? 'manual' : 'auto';
+        // Queue the ad-hoc task with deterministic custom_data for deduplication.
+        // Triggeredby is derived from task userid vs submission userid in the task itself.
         $task = new process_feedback_adhoc();
-        $uniqadhoctaskid = uniqid();
         $task->set_custom_data([
             'assignment' => intval($params['assignmentid']),
-            'users' => [$params['userid']],
+            'userid' => intval($params['userid']),
             'action' => 'generate',
-            'triggeredby' => $triggeredby,
-            'uniqadhoctaskid' => $uniqadhoctaskid,
         ]);
         $task->set_userid($isteacher ? $USER->id : $params['userid']);
         manager::queue_adhoc_task($task, true);
 
-        // Find the queued task to get its ID for stored progress.
+        // Find the queued task by matching deterministic custom_data.
         $currenttasks = manager::get_adhoc_tasks(process_feedback_adhoc::class);
         $adhoctask = null;
         foreach ($currenttasks as $t) {
             $data = $t->get_custom_data();
-            if (isset($data->uniqadhoctaskid) && $data->uniqadhoctaskid === $uniqadhoctaskid) {
+            if (
+                isset($data->assignment) && (int) $data->assignment === intval($params['assignmentid'])
+                && isset($data->userid) && (int) $data->userid === intval($params['userid'])
+            ) {
                 $adhoctask = $t;
                 break;
             }

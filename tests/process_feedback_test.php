@@ -151,10 +151,11 @@ final class process_feedback_test extends \advanced_testcase {
 
         $task = new process_feedback_adhoc();
         $task->set_custom_data([
-            'assignment' => $env->assign->id,
-            'users' => [$env->student->id],
+            'assignment' => intval($env->assign->id),
+            'userid' => intval($env->student->id),
             'action' => 'generate',
         ]);
+        $task->set_userid($env->student->id);
 
         $this->assertEquals(0, $DB->count_records('assignfeedback_aif_feedback'));
 
@@ -196,10 +197,11 @@ final class process_feedback_test extends \advanced_testcase {
 
         $task = new process_feedback_adhoc();
         $task->set_custom_data([
-            'assignment' => $env->assign->id,
-            'users' => [$env->student->id],
+            'assignment' => intval($env->assign->id),
+            'userid' => intval($env->student->id),
             'action' => 'delete',
         ]);
+        $task->set_userid($env->student->id);
         ob_start();
         $task->execute();
         ob_end_clean();
@@ -244,16 +246,16 @@ final class process_feedback_test extends \advanced_testcase {
         ]);
         $this->assertGreaterThan($tasksbefore, $tasksafter);
 
-        // Verify the queued task contains the correct student userid (not null).
+        // Verify the queued task contains the correct student userid.
         $task = $DB->get_records('task_adhoc', [
             'classname' => '\\assignfeedback_aif\\task\\process_feedback_adhoc',
         ], 'id DESC', '*', 0, 1);
         $task = reset($task);
         $customdata = json_decode($task->customdata);
-        $this->assertContains(
+        $this->assertEquals(
             $env->student->id,
-            $customdata->users,
-            'Adhoc task must contain the submitting student userid, not null'
+            $customdata->userid,
+            'Adhoc task must contain the submitting student userid'
         );
     }
 
@@ -335,10 +337,10 @@ final class process_feedback_test extends \advanced_testcase {
         $task = $DB->get_records('task_adhoc', ['classname' => $taskclass], 'id DESC', '*', 0, 1);
         $task = reset($task);
         $customdata = json_decode($task->customdata);
-        $this->assertContains(
+        $this->assertEquals(
             $env->student->id,
-            $customdata->users,
-            'CP5a: Task users must contain the student. customdata=' . $task->customdata
+            $customdata->userid,
+            'CP5a: Task userid must be the student. customdata=' . $task->customdata
         );
         $this->assertEquals(
             $env->assign->id,
@@ -350,6 +352,7 @@ final class process_feedback_test extends \advanced_testcase {
         // CP6: Execute the adhoc task — feedback is created.
         $adhoctask = new process_feedback_adhoc();
         $adhoctask->set_custom_data($customdata);
+        $adhoctask->set_userid($env->student->id);
         ob_start();
         $adhoctask->execute();
         ob_end_clean();
@@ -433,14 +436,15 @@ final class process_feedback_test extends \advanced_testcase {
         $task = $DB->get_records('task_adhoc', ['classname' => $taskclass], 'id DESC', '*', 0, 1);
         $task = reset($task);
         $customdata = json_decode($task->customdata);
-        $this->assertContains(
+        $this->assertEquals(
             $env->student->id,
-            $customdata->users,
-            'CP4a: Task users must contain the student'
+            $customdata->userid,
+            'CP4a: Task userid must be the student'
         );
 
         $adhoctask = new process_feedback_adhoc();
         $adhoctask->set_custom_data($customdata);
+        $adhoctask->set_userid($env->student->id);
         ob_start();
         $adhoctask->execute();
         ob_end_clean();
@@ -691,11 +695,11 @@ final class process_feedback_test extends \advanced_testcase {
 
         $task = new process_feedback_adhoc();
         $task->set_custom_data([
-            'assignment' => $env->assign->id,
-            'users' => [$env->student->id],
+            'assignment' => intval($env->assign->id),
+            'userid' => intval($env->student->id),
             'action' => 'generate',
-            'triggeredby' => 'manual',
         ]);
+        $task->set_userid($env->student->id);
 
         ob_start();
         $task->execute();

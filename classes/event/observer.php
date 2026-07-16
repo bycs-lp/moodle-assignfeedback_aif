@@ -77,7 +77,7 @@ class observer {
             return;
         }
 
-        // Queue the ad-hoc task.
+        // Queue the ad-hoc task (one task per user).
         // Duplicate protection: queue_adhoc_task($task, true) prevents duplicates when both
         // the onlinetext and file submission plugins fire submission_updated for the same student.
         // This works because the custom_data is identical for both events.
@@ -85,11 +85,11 @@ class observer {
         $task = new process_feedback_adhoc();
         $task->set_custom_data([
             'assignment' => intval($assignmentid),
-            'users' => [$userid],
+            'userid' => intval($userid),
             'action' => 'generate',
-            'triggeredby' => 'auto',
         ]);
         // Run as the submitting user so quota and availability checks are correct.
+        // Triggeredby is derived: task userid === submission userid → auto, otherwise manual.
         $task->set_userid($userid);
         manager::queue_adhoc_task($task, true);
 

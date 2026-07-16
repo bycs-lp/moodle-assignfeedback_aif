@@ -426,22 +426,27 @@ class assign_feedback_aif extends assign_feedback_plugin {
     /**
      * Generate or delete AI feedback for the given users.
      *
+     * Queues one adhoc task per user for proper deduplication and progress tracking.
+     *
      * @param array $users The user IDs to process.
      * @param string $action The action to perform ('generate' or 'delete').
      * @return void
      */
     public function process_feedbackaif(array $users, string $action): void {
-        // Run an ad-hoc task to generate AI feedback for submission.
-        $task = new \assignfeedback_aif\task\process_feedback_adhoc();
-        $task->set_custom_data([
-            'assignment' => $this->assignment->get_instance()->id,
-            'users' => $users,
-            'action' => $action,
-            'triggeredby' => 'manual',
-        ]);
         global $USER;
-        $task->set_userid($USER->id);
-        \core\task\manager::queue_adhoc_task($task, true);
+
+        $assignmentid = $this->assignment->get_instance()->id;
+
+        foreach ($users as $userid) {
+            $task = new \assignfeedback_aif\task\process_feedback_adhoc();
+            $task->set_custom_data([
+                'assignment' => intval($assignmentid),
+                'userid' => intval($userid),
+                'action' => $action,
+            ]);
+            $task->set_userid($USER->id);
+            \core\task\manager::queue_adhoc_task($task, true);
+        }
     }
 
     /**
