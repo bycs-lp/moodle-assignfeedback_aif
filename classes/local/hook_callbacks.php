@@ -124,7 +124,7 @@ class hook_callbacks {
             return;
         }
 
-        // Teacher grading overview: show spinner when adhoc tasks are pending.
+        // Teacher grading overview: show feedback summary widget.
         if ($PAGE->pagetype !== 'mod-assign-view') {
             return;
         }
@@ -133,37 +133,32 @@ class hook_callbacks {
             return;
         }
 
-        // Check if there are pending adhoc tasks for this assignment.
-        $taskclass = \assignfeedback_aif\task\process_feedback_adhoc::class;
-        $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
-        $pending = false;
-        foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (isset($data->assignment) && (int) $data->assignment === (int) $cm->instance) {
-                $pending = true;
-                break;
-            }
-        }
-
-        if (!$pending) {
+        // Only show the widget if the AIF plugin is configured for this assignment.
+        $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => (int) $cm->instance]);
+        if (!$aifconfig) {
             return;
         }
 
-        // Skip if view_summary() already rendered a spinner for this page.
-        if (\assign_feedback_aif::is_spinner_rendered()) {
+        // Check if there are submitted submissions at all.
+        $hassubmissions = $DB->record_exists('assign_submission', [
+            'assignment' => (int) $cm->instance,
+            'latest' => 1,
+            'status' => 'submitted',
+        ]);
+        if (!$hassubmissions) {
             return;
         }
 
-        // Render the spinner notification and start the poller.
-        $html = $OUTPUT->render_from_template('assignfeedback_aif/feedback_generating', [
-            'message' => get_string('waitingforadhoctaskstart', 'assignfeedback_aif'),
+        // Render the summary widget and start the summary poller.
+        $html = $OUTPUT->render_from_template('assignfeedback_aif/feedback_summary_widget', [
+            'assignmentid' => (int) $cm->instance,
         ]);
         $hook->add_html($html);
 
         $PAGE->requires->js_call_amd(
-            'assignfeedback_aif/feedbackpoller',
+            'assignfeedback_aif/feedbacksummary',
             'init',
-            [(int) $cm->instance, 0]
+            [(int) $cm->instance]
         );
     }
 
