@@ -135,11 +135,3 @@ $settings->add(new admin_setting_configtext(
     PARAM_RAW
 ));
 
-// Cache cleanup delay for extracted file content.
-$settings->add(new admin_setting_configtext(
-    'assignfeedback_aif/cachecleanupdelay',
-    get_string('cachecleanupdelay', 'assignfeedback_aif'),
-    get_string('cachecleanupdelay_text', 'assignfeedback_aif'),
-    30,
-    PARAM_INT
-));

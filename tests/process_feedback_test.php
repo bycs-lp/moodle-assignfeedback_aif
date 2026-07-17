@@ -617,13 +617,13 @@ final class process_feedback_test extends \advanced_testcase {
             'userid' => $env->teacher->id,
         ], 'fake pdf content');
 
-        // Register a partial-mock aif so PDF rendering yields one page image without ghostscript.
-        $aifmock = $this->getMockBuilder(\assignfeedback_aif\aif::class)
-            ->onlyMethods(['convert_pdf_to_images'])
-            ->getMock();
-        $aifmock->method('convert_pdf_to_images')
-            ->willReturn(['data:image/png;base64,' . base64_encode('img')]);
-        \core\di::set(\assignfeedback_aif\aif::class, $aifmock);
+        // Register a mock extractor that throws when extracting the PDF,
+        // simulating an AI backend rejection (e.g. terms of use not confirmed).
+        $extractormock = $this->createMock(\local_ai_content\extractor::class);
+        $extractormock->method('is_file_supported')->willReturn(true);
+        $extractormock->method('extract_text_from_file')->willThrowException($backenderror);
+        $extractormock->method('get_supported_extensions')->willReturn('PDF, PNG, TXT');
+        \core\di::set(\local_ai_content\extractor::class, $extractormock);
 
         $task = new process_feedback_adhoc();
         $task->set_custom_data([

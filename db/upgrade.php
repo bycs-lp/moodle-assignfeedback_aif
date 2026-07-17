@@ -223,5 +223,15 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026071701, 'assignfeedback', 'aif');
     }
 
+    if ($oldversion < 2026071702) {
+        // Drop the rescache table — caching is now handled by local_ai_content.
+        $table = new xmldb_table('assignfeedback_aif_rescache');
+        if ($dbman->table_exists($table)) {
+            $dbman->drop_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026071702, 'assignfeedback', 'aif');
+    }
+
     return true;
 }
