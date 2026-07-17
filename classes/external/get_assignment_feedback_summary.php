@@ -140,16 +140,9 @@ class get_assignment_feedback_summary extends external_api {
         }
 
         // Check if any adhoc tasks are still queued.
-        $haspending = false;
-        $taskclass = \assignfeedback_aif\task\process_feedback_adhoc::class;
-        $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
-        foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (isset($data->assignment) && (int) $data->assignment === (int) $params['assignmentid']) {
-                $haspending = true;
-                break;
-            }
-        }
+        $haspending = \assignfeedback_aif\local\task_manager::has_pending_tasks(
+            (int) $params['assignmentid']
+        );
 
         return [
             'totalsubmissions' => $totalsubmissions,

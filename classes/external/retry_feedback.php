@@ -112,7 +112,7 @@ class retry_feedback extends external_api {
 
         // If a task is already queued for this user, return its progress record
         // instead of deleting feedback and re-queuing.
-        $existingprogressid = \assignfeedback_aif\local\feedback_utils::get_running_progress_id(
+        $existingprogressid = \assignfeedback_aif\local\task_manager::get_progress_id_for_user(
             $params['assignmentid'],
             $params['userid']
         );
@@ -129,45 +129,13 @@ class retry_feedback extends external_api {
             'submission' => $submission->id,
         ]);
 
-        // Queue the ad-hoc task with deterministic custom_data for deduplication.
-        // Triggeredby is derived from task userid vs submission userid in the task itself.
-        $task = new process_feedback_adhoc();
-        $task->set_custom_data([
-            'assignment' => intval($params['assignmentid']),
-            'userid' => intval($params['userid']),
-            'action' => 'generate',
-        ]);
-        $task->set_userid($isteacher ? $USER->id : $params['userid']);
-        manager::queue_adhoc_task($task, true);
-
-        // Find the queued task by matching deterministic custom_data.
-        $currenttasks = manager::get_adhoc_tasks(process_feedback_adhoc::class);
-        $adhoctask = null;
-        foreach ($currenttasks as $t) {
-            $data = $t->get_custom_data();
-            if (
-                isset($data->assignment) && (int) $data->assignment === intval($params['assignmentid'])
-                && isset($data->userid) && (int) $data->userid === intval($params['userid'])
-            ) {
-                $adhoctask = $t;
-                break;
-            }
-        }
-
-        $progressrecordid = 0;
-        if ($adhoctask) {
-            $adhoctask->initialise_stored_progress();
-
-            $idnumber = stored_progress_bar::convert_to_idnumber(
-                process_feedback_adhoc::class . '_' . $adhoctask->get_id()
-            );
-            $record = $DB->get_record('stored_progress', ['idnumber' => $idnumber]);
-            if ($record) {
-                $progressrecordid = (int) $record->id;
-                $record->message = get_string('waitingforadhoctaskstart', 'assignfeedback_aif');
-                $DB->update_record('stored_progress', $record);
-            }
-        }
+        // Queue the ad-hoc task with progress tracking.
+        $taskuserid = $isteacher ? $USER->id : $params['userid'];
+        $progressrecordid = \assignfeedback_aif\local\task_manager::queue_generation_with_progress(
+            intval($params['assignmentid']),
+            intval($params['userid']),
+            $taskuserid
+        );
 
         return [
             'success' => true,

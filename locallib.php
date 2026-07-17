@@ -452,14 +452,7 @@ class assign_feedback_aif extends assign_feedback_plugin {
         $assignmentid = $this->assignment->get_instance()->id;
 
         foreach ($users as $userid) {
-            $task = new \assignfeedback_aif\task\process_feedback_adhoc();
-            $task->set_custom_data([
-                'assignment' => intval($assignmentid),
-                'userid' => intval($userid),
-                'action' => $action,
-            ]);
-            $task->set_userid($USER->id);
-            \core\task\manager::queue_adhoc_task($task, true);
+            \assignfeedback_aif\local\task_manager::queue_generation($assignmentid, (int) $userid, $USER->id);
         }
     }
 

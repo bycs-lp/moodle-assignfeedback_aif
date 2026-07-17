@@ -81,17 +81,7 @@ class observer {
         // Duplicate protection: queue_adhoc_task($task, true) prevents duplicates when both
         // the onlinetext and file submission plugins fire submission_updated for the same student.
         // This works because the custom_data is identical for both events.
-        // CARE: Identical means, also parameter types need to be identical (int vs string!).
-        $task = new process_feedback_adhoc();
-        $task->set_custom_data([
-            'assignment' => intval($assignmentid),
-            'userid' => intval($userid),
-            'action' => 'generate',
-        ]);
-        // Run as the submitting user so quota and availability checks are correct.
-        // Triggeredby is derived: task userid === submission userid → auto, otherwise manual.
-        $task->set_userid($userid);
-        manager::queue_adhoc_task($task, true);
+        \assignfeedback_aif\local\task_manager::queue_generation($assignmentid, $userid, $userid);
 
         // Delete any existing AI feedback for this user so the student does not
         // see stale feedback while the new generation is pending.

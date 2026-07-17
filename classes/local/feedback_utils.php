@@ -130,28 +130,12 @@ class feedback_utils {
         if ($record && !empty($record->status) && $record->status === 'pending') {
             // Verify the adhoc task is still queued. If not, the task crashed
             // and we should mark the record as error to avoid an infinite pending state.
-            if (self::get_running_progress_id($assignmentid, $userid) === 0) {
-                // No running task found — check if there is any queued task at all.
-                $taskclass = \assignfeedback_aif\task\process_feedback_adhoc::class;
-                $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
-                $taskfound = false;
-                foreach ($tasks as $task) {
-                    $data = $task->get_custom_data();
-                    if (
-                        isset($data->assignment) && (int) $data->assignment === $assignmentid
-                        && isset($data->userid) && (int) $data->userid === $userid
-                    ) {
-                        $taskfound = true;
-                        break;
-                    }
-                }
-                if (!$taskfound) {
-                    // Task is gone — mark as error so the teacher can see what happened.
-                    $record->status = 'error';
-                    $record->errormessage = get_string('errortaskcrashed', 'assignfeedback_aif');
-                    $DB->update_record('assignfeedback_aif_feedback', $record);
-                    return false;
-                }
+            if (!task_manager::is_task_queued_for_user($assignmentid, $userid)) {
+                // Task is gone — mark as error so the teacher can see what happened.
+                $record->status = 'error';
+                $record->errormessage = get_string('errortaskcrashed', 'assignfeedback_aif');
+                $DB->update_record('assignfeedback_aif_feedback', $record);
+                return false;
             }
             return true;
         }
@@ -175,40 +159,14 @@ class feedback_utils {
     /**
      * Check if there is a running adhoc task with stored progress for this assignment and user.
      *
-     * Searches for queued process_feedback_adhoc tasks that match the assignment and user,
-     * then looks up their stored_progress record.
+     * Delegates to task_manager which centralises all task lookup logic.
      *
      * @param int $assignmentid The assignment instance ID.
      * @param int $userid The user ID.
      * @return int The stored_progress record ID, or 0 if no running task.
      */
     public static function get_running_progress_id(int $assignmentid, int $userid): int {
-        global $DB;
-
-        $taskclass = process_feedback_adhoc::class;
-
-        // Find queued adhoc tasks for this class.
-        $tasks = \core\task\manager::get_adhoc_tasks($taskclass);
-        // Reverse to find the most recently queued task first.
-        $tasks = array_reverse($tasks);
-        foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (
-                isset($data->assignment) && (int) $data->assignment === $assignmentid
-                && isset($data->userid) && (int) $data->userid === $userid
-            ) {
-                // Found a matching task — look up its stored_progress record.
-                $idnumber = stored_progress_bar::convert_to_idnumber(
-                    $taskclass . '_' . $task->get_id()
-                );
-                $record = $DB->get_record('stored_progress', ['idnumber' => $idnumber]);
-                if ($record && (float) ($record->percentcompleted ?? 0) < 100) {
-                    return (int) $record->id;
-                }
-            }
-        }
-
-        return 0;
+        return task_manager::get_progress_id_for_user($assignmentid, $userid);
     }
 
     /**
