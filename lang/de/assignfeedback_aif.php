@@ -109,6 +109,5 @@ $string['skipreason_imageextractionfailed'] = 'KI-Bildtextextraktion fehlgeschla
 $string['skipreason_pdfextractionfailed'] = 'KI-PDF-Textextraktion fehlgeschlagen';
 $string['studentsubmissionainotice'] = 'Diese Aufgabe verwendet KI-gestütztes Feedback. Wenn Sie Ihre Arbeit abgeben, werden Ihr Abgabetext und hochgeladene Dateien zur Analyse an ein KI-System gesendet. Die KI generiert Feedback zu Ihrer Abgabe.';
 $string['taskcleanupcache'] = 'Abgelaufenen Dateiinhalts-Cache bereinigen';
-$string['taskprocessfeedback'] = 'KI-Feedback verarbeiten';
 $string['useexpertmodetemplate'] = 'Expertenmodus-Vorlage';
 $string['waitingforadhoctaskstart'] = 'Warten auf den Start der Feedback-Generierung...';

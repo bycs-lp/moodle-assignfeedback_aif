@@ -25,7 +25,6 @@
 
 namespace assignfeedback_aif;
 
-use assignfeedback_aif\task\process_feedback;
 use assignfeedback_aif\task\process_feedback_adhoc;
 use assignfeedback_aif\external\regenerate_feedback;
 
@@ -40,7 +39,6 @@ require_once(__DIR__ . '/generator_trait.php');
  * @package    assignfeedback_aif
  * @copyright  2024 Marcus Green
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @covers \assignfeedback_aif\task\process_feedback
  * @covers \assignfeedback_aif\task\process_feedback_adhoc
  * @covers \assignfeedback_aif\event\observer
  * @covers \assignfeedback_aif\external\regenerate_feedback
@@ -69,72 +67,6 @@ final class process_feedback_test extends \advanced_testcase {
         \core\di::set(\assignfeedback_aif\local\ai_request_provider::class, $mock);
     }
 
-    /**
-     * Test the dispatcher scheduled task enqueues adhoc tasks for unprocessed submissions.
-     *
-     * @covers \assignfeedback_aif\task\process_feedback::execute
-     */
-    public function test_rubric_scheduled_task_generates_feedback(): void {
-        global $DB;
-        $this->resetAfterTest();
-
-        $env = $this->create_test_environment();
-        $this->create_and_submit($env, 'My essay about renewable energy');
-        $this->create_aif_config($env, 'Evaluate based on rubric', 1);
-
-        $taskclass = '\\assignfeedback_aif\\task\\process_feedback_adhoc';
-        $tasksbefore = $DB->count_records('task_adhoc', ['classname' => $taskclass]);
-
-        $task = new process_feedback();
-        ob_start();
-        $task->execute();
-        ob_end_clean();
-
-        // Dispatcher should have enqueued an adhoc task.
-        $tasksafter = $DB->count_records('task_adhoc', ['classname' => $taskclass]);
-        $this->assertGreaterThan($tasksbefore, $tasksafter);
-    }
-
-    /**
-     * Test the rubric scheduled task skips submissions with existing feedback.
-     *
-     * @covers \assignfeedback_aif\task\process_feedback::execute
-     */
-    public function test_rubric_scheduled_task_skips_existing(): void {
-        global $DB;
-        $this->resetAfterTest();
-
-        $env = $this->create_test_environment();
-        $this->create_and_submit($env, 'Test essay');
-        $aifid = $this->create_aif_config($env, 'Evaluate', 1);
-
-        $submission = $DB->get_record('assign_submission', [
-            'assignment' => $env->assign->id,
-            'userid' => $env->student->id,
-            'latest' => 1,
-        ]);
-
-        // Pre-insert feedback.
-        $clock = \core\di::get(\core\clock::class);
-        $DB->insert_record('assignfeedback_aif_feedback', [
-            'aif' => $aifid,
-            'feedback' => 'Already processed',
-            'submission' => $submission->id,
-            'timecreated' => $clock->now()->getTimestamp(),
-        ]);
-
-        $taskclass = '\\assignfeedback_aif\\task\\process_feedback_adhoc';
-        $tasksbefore = $DB->count_records('task_adhoc', ['classname' => $taskclass]);
-
-        $task = new process_feedback();
-        ob_start();
-        $task->execute();
-        ob_end_clean();
-
-        // No new adhoc task should be enqueued.
-        $tasksafter = $DB->count_records('task_adhoc', ['classname' => $taskclass]);
-        $this->assertEquals($tasksbefore, $tasksafter);
-    }
 
     /**
      * Test the adhoc task generates feedback for a specific user.

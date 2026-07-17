@@ -112,6 +112,5 @@ $string['skipreason_imageextractionfailed'] = 'AI image text extraction failed';
 $string['skipreason_pdfextractionfailed'] = 'AI PDF text extraction failed';
 $string['studentsubmissionainotice'] = 'This assignment uses AI-assisted feedback. When you submit your work, your submission text and uploaded files will be sent to an AI system for analysis. The AI will generate feedback on your submission.';
 $string['taskcleanupcache'] = 'Clean up expired file content cache';
-$string['taskprocessfeedback'] = 'Process AI feedback';
 $string['useexpertmodetemplate'] = 'Expert mode template';
 $string['waitingforadhoctaskstart'] = 'Waiting for feedback generation to start...';
