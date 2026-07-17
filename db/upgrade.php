@@ -212,7 +212,7 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026071600, 'assignfeedback', 'aif');
     }
 
-    if ($oldversion < 2026071700) {
+    if ($oldversion < 2026071701) {
         // Add useintroattachments field to config table (default 1 for backwards compatibility).
         $table = new xmldb_table('assignfeedback_aif');
         $field = new xmldb_field('useintroattachments', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'autogenerate');
@@ -220,7 +220,7 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
             $dbman->add_field($table, $field);
         }
 
-        upgrade_plugin_savepoint(true, 2026071700, 'assignfeedback', 'aif');
+        upgrade_plugin_savepoint(true, 2026071701, 'assignfeedback', 'aif');
     }
 
     return true;
