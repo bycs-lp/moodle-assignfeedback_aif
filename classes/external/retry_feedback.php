@@ -110,6 +110,19 @@ class retry_feedback extends external_api {
             }
         }
 
+        // If a task is already queued for this user, return its progress record
+        // instead of deleting feedback and re-queuing.
+        $existingprogressid = \assignfeedback_aif\local\feedback_utils::get_running_progress_id(
+            $params['assignmentid'],
+            $params['userid']
+        );
+        if ($existingprogressid > 0) {
+            return [
+                'success' => true,
+                'progressrecordid' => $existingprogressid,
+            ];
+        }
+
         // Delete existing error feedback so the UI reflects the retry.
         $DB->delete_records('assignfeedback_aif_feedback', [
             'aif' => $aifconfig->id,
