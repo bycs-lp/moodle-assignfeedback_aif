@@ -81,6 +81,7 @@ class restore_assignfeedback_aif_subplugin extends restore_subplugin {
             'assignment' => $assignmentid,
             'prompt' => $data->prompt ?? null,
             'autogenerate' => $data->autogenerate ?? 0,
+            'useintroattachments' => $data->useintroattachments ?? 1,
             'timecreated' => $data->timecreated ?? 0,
         ];
         $DB->insert_record('assignfeedback_aif', $record);
@@ -117,6 +118,7 @@ class restore_assignfeedback_aif_subplugin extends restore_subplugin {
                 'assignment' => $assignmentid,
                 'prompt' => $data->configprompt ?? null,
                 'autogenerate' => $data->configautogenerate ?? 0,
+                'useintroattachments' => $data->configuseintroattachments ?? 1,
                 'timecreated' => $data->configtimecreated ?? 0,
             ];
             $aif->id = $DB->insert_record('assignfeedback_aif', $aif);

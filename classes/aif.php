@@ -340,10 +340,15 @@ class aif {
 
         // Extract content from assignment additional files (introattachments).
         // Teachers often use these to provide detailed instructions or rubric sheets.
-        $introattachmenttext = $this->extract_introattachment_content($assignment);
-        if (!empty($introattachmenttext)) {
-            $description .= "\n\n" . get_string('introattachmentsheading', 'assignfeedback_aif') . "\n" . $introattachmenttext;
-            mtrace("Content from assignment additional files included in prompt.");
+        // Only included when the useintroattachments setting is enabled.
+        $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => $assignment->aid]);
+        if (!empty($aifconfig->useintroattachments)) {
+            $introattachmenttext = $this->extract_introattachment_content($assignment);
+            if (!empty($introattachmenttext)) {
+                $description .= "\n\n" . get_string('introattachmentsheading', 'assignfeedback_aif')
+                    . "\n" . $introattachmenttext;
+                mtrace("Content from assignment additional files included in prompt.");
+            }
         }
 
         // Use the template system to build the full prompt.

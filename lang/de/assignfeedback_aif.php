@@ -110,4 +110,6 @@ $string['skipreason_pdfextractionfailed'] = 'KI-PDF-Textextraktion fehlgeschlage
 $string['studentsubmissionainotice'] = 'Diese Aufgabe verwendet KI-gestütztes Feedback. Wenn Sie Ihre Arbeit abgeben, werden Ihr Abgabetext und hochgeladene Dateien zur Analyse an ein KI-System gesendet. Die KI generiert Feedback zu Ihrer Abgabe.';
 $string['taskcleanupcache'] = 'Abgelaufenen Dateiinhalts-Cache bereinigen';
 $string['useexpertmodetemplate'] = 'Expertenmodus-Vorlage';
+$string['useintroattachments'] = 'Aufgaben-Anhänge in KI-Prompt einbeziehen';
+$string['useintroattachments_help'] = 'Wenn aktiviert, werden Dateien, die an die Aufgabenbeschreibung angehängt sind (z.B. Bewertungsbögen, Anleitungsdokumente), extrahiert und in den KI-Prompt aufgenommen. Dies gibt der KI zusätzlichen Kontext über die Aufgabenanforderungen. Deaktivieren Sie dies, wenn die Anhänge für die Feedbackgenerierung nicht relevant sind oder wenn die Extraktion Probleme verursacht.';
 $string['waitingforadhoctaskstart'] = 'Warten auf den Start der Feedback-Generierung...';

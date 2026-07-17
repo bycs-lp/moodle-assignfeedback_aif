@@ -113,4 +113,6 @@ $string['skipreason_pdfextractionfailed'] = 'AI PDF text extraction failed';
 $string['studentsubmissionainotice'] = 'This assignment uses AI-assisted feedback. When you submit your work, your submission text and uploaded files will be sent to an AI system for analysis. The AI will generate feedback on your submission.';
 $string['taskcleanupcache'] = 'Clean up expired file content cache';
 $string['useexpertmodetemplate'] = 'Expert mode template';
+$string['useintroattachments'] = 'Include assignment attachments in AI prompt';
+$string['useintroattachments_help'] = 'When enabled, files attached to the assignment description (e.g. rubric sheets, instruction documents) are extracted and included in the AI prompt. This gives the AI additional context about the assignment requirements. Disable this if the attachments are not relevant for feedback generation or if extraction causes issues.';
 $string['waitingforadhoctaskstart'] = 'Waiting for feedback generation to start...';

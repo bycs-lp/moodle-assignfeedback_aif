@@ -143,6 +143,19 @@ class assign_feedback_aif extends assign_feedback_plugin {
         $mform->addHelpButton('assignfeedback_aif_autogenerate', 'autogenerate', 'assignfeedback_aif');
         $mform->hideIf('assignfeedback_aif_autogenerate', 'assignfeedback_aif_enabled', 'notchecked');
 
+        // Include intro attachments in AI prompt checkbox.
+        $mform->addElement(
+            'advcheckbox',
+            'assignfeedback_aif_useintroattachments',
+            get_string('useintroattachments', 'assignfeedback_aif'),
+            '',
+            ['id' => 'id_assignfeedback_aif_useintroattachments'],
+            [0, 1]
+        );
+        $mform->setDefault('assignfeedback_aif_useintroattachments', 1);
+        $mform->addHelpButton('assignfeedback_aif_useintroattachments', 'useintroattachments', 'assignfeedback_aif');
+        $mform->hideIf('assignfeedback_aif_useintroattachments', 'assignfeedback_aif_enabled', 'notchecked');
+
         // Show info box about AI control center when block_ai_control is installed and active.
         $enabledblocks = \core_plugin_manager::instance()->get_enabled_plugins('block');
         if (isset($enabledblocks['ai_control'])) {
@@ -172,6 +185,7 @@ class assign_feedback_aif extends assign_feedback_plugin {
             if ($record) {
                 $mform->setDefault('assignfeedback_aif_prompt', $record->prompt);
                 $mform->setDefault('assignfeedback_aif_autogenerate', $record->autogenerate ?? 0);
+                $mform->setDefault('assignfeedback_aif_useintroattachments', $record->useintroattachments ?? 1);
             }
         }
     }
@@ -645,12 +659,14 @@ class assign_feedback_aif extends assign_feedback_plugin {
 
         $prompt = $data->assignfeedback_aif_prompt;
         $autogenerate = !empty($data->assignfeedback_aif_autogenerate) ? 1 : 0;
+        $useintroattachments = !empty($data->assignfeedback_aif_useintroattachments) ? 1 : 0;
 
         // Persist into the plugin's custom table (used at runtime).
         \assignfeedback_aif\local\feedback_utils::save_settings(
             $this->assignment->get_instance()->id,
             $prompt,
-            $autogenerate
+            $autogenerate,
+            $useintroattachments
         );
 
         // Also persist into assign_plugin_config so that mod_assign's core
@@ -658,6 +674,7 @@ class assign_feedback_aif extends assign_feedback_plugin {
         // an activity (no grades → grade-level subplugin hook never fires).
         $this->set_config('prompt', $prompt);
         $this->set_config('autogenerate', $autogenerate);
+        $this->set_config('useintroattachments', $useintroattachments);
 
         return true;
     }

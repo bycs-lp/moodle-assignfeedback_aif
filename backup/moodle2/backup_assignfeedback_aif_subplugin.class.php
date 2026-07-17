@@ -56,6 +56,7 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
         $config = new backup_nested_element('feedback_aif_config', null, [
             'prompt',
             'autogenerate',
+            'useintroattachments',
             'timecreated',
         ]);
 
@@ -76,6 +77,7 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
             'skippedfiles',
             'configprompt',
             'configautogenerate',
+            'configuseintroattachments',
             'configtimecreated',
         ]);
 
@@ -86,7 +88,7 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
 
         // Config source: look up by the grade's assignment.
         $config->set_source_sql(
-            'SELECT aif.prompt, aif.autogenerate, aif.timecreated
+            'SELECT aif.prompt, aif.autogenerate, aif.useintroattachments, aif.timecreated
                FROM {assignfeedback_aif} aif
                JOIN {assign_grades} g ON g.assignment = aif.assignment
               WHERE g.id = :gradeid',
@@ -107,6 +109,7 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
                     aiff.timemodified, aiff.timecreated, aiff.skippedfiles,
                     aif.prompt AS configprompt,
                     aif.autogenerate AS configautogenerate,
+                    aif.useintroattachments AS configuseintroattachments,
                     aif.timecreated AS configtimecreated
                FROM {assignfeedback_aif_feedback} aiff
                JOIN {assignfeedback_aif} aif ON aif.id = aiff.aif
