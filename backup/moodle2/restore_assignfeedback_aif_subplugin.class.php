@@ -155,6 +155,8 @@ class restore_assignfeedback_aif_subplugin extends restore_subplugin {
             'submission' => $newsubmissionid,
             'feedback' => $data->feedback ?? null,
             'feedbackformat' => $data->feedbackformat ?? FORMAT_HTML,
+            'status' => $data->status ?? (!empty($data->feedback) ? 'completed' : 'pending'),
+            'errormessage' => $data->errormessage ?? null,
             'timemodified' => $data->timemodified ?? 0,
             'timecreated' => $data->timecreated ?? 0,
             'skippedfiles' => $data->skippedfiles ?? null,

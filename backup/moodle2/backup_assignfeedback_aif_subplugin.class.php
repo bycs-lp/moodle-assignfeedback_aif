@@ -69,6 +69,8 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
             'oldsubmissionid',
             'feedback',
             'feedbackformat',
+            'status',
+            'errormessage',
             'timemodified',
             'timecreated',
             'skippedfiles',
@@ -101,6 +103,7 @@ class backup_assignfeedback_aif_subplugin extends backup_subplugin {
         $feedback->set_source_sql(
             'SELECT g.id AS oldgradeid, aiff.submission AS oldsubmissionid,
                     aiff.feedback, aiff.feedbackformat,
+                    aiff.status, aiff.errormessage,
                     aiff.timemodified, aiff.timecreated, aiff.skippedfiles,
                     aif.prompt AS configprompt,
                     aif.autogenerate AS configautogenerate,

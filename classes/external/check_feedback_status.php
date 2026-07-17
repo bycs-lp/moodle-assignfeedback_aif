@@ -87,7 +87,7 @@ class check_feedback_status extends external_api {
                 throw new \required_capability_exception($context, 'mod/assign:grade', 'nopermissions', '');
             }
 
-            $sql = "SELECT aiff.id, aiff.feedback, aiff.feedbackformat
+            $sql = "SELECT aiff.id, aiff.feedback, aiff.feedbackformat, aiff.status
                       FROM {assignfeedback_aif_feedback} aiff
                       JOIN {assignfeedback_aif} aif ON aiff.aif = aif.id
                       JOIN {assign_submission} sub ON aiff.submission = sub.id
@@ -98,7 +98,7 @@ class check_feedback_status extends external_api {
                 'assignmentid' => $params['assignmentid'],
                 'userid' => $params['userid'],
             ]);
-            $exists = !empty($record);
+            $exists = !empty($record) && ($record->status === 'completed');
 
             // Return the feedback HTML when it exists, so the grading page can
             // inject it into the editor without a full page reload.
