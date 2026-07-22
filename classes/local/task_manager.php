@@ -117,18 +117,27 @@ class task_manager {
     /**
      * Check whether any adhoc tasks are queued for a given assignment.
      *
+     * Uses a direct SQL query with LIKE on the serialised customdata column
+     * to avoid loading all task objects into PHP memory. This is significantly
+     * faster than iterating over all tasks when many adhoc tasks are queued.
+     *
      * @param int $assignmentid The assignment instance ID.
      * @return bool True if at least one task is pending.
      */
     public static function has_pending_tasks(int $assignmentid): bool {
-        $tasks = manager::get_adhoc_tasks(process_feedback_adhoc::class);
-        foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (isset($data->assignment) && (int) $data->assignment === $assignmentid) {
-                return true;
-            }
-        }
-        return false;
+        global $DB;
+
+        $classname = '\\' . process_feedback_adhoc::class;
+        $pattern = '%"assignment":' . intval($assignmentid) . ',%';
+
+        $sql = "SELECT 1
+                  FROM {task_adhoc}
+                 WHERE classname = :classname
+                   AND " . $DB->sql_like('customdata', ':pattern');
+        return $DB->record_exists_sql($sql, [
+            'classname' => $classname,
+            'pattern' => $pattern,
+        ]);
     }
 
     /**

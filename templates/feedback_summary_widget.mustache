@@ -22,10 +22,24 @@
 
     Context variables required for this template:
     * assignmentid - The assignment instance ID for polling
+    * hassummary - Whether pre-populated data is available
+    * countstext - Pre-formatted counts string (e.g. "12 / 25")
+    * barcompleted - Completed bar width percentage
+    * barpending - Pending bar width percentage
+    * barerrors - Errors bar width percentage
+    * details - Array of detail text items
+    * hasdetails - Whether detail items exist
 
     Example context (json):
     {
-        "assignmentid": 42
+        "assignmentid": 42,
+        "hassummary": true,
+        "countstext": "12 / 25",
+        "barcompleted": 48.0,
+        "barpending": 40.0,
+        "barerrors": 12.0,
+        "details": [{"text": "⏳ 10 in progress"}, {"text": "❌ 3 failed"}],
+        "hasdetails": true
     }
 }}
 <div class="assignfeedback_aif-summary-widget card mb-3" data-aif="summary-widget" data-assignmentid="{{assignmentid}}">
@@ -34,15 +48,20 @@
             <span class="font-weight-bold mr-2" data-aif="summary-title">
                 {{#str}}widgettitle, assignfeedback_aif{{/str}}
             </span>
-            <span class="badge badge-pill badge-info" data-aif="summary-counts"></span>
+            <span class="badge badge-pill badge-info" data-aif="summary-counts">{{#hassummary}}{{countstext}}{{/hassummary}}</span>
         </div>
         <div class="progress mb-1" style="height: 6px;">
-            <div class="progress-bar bg-success" data-aif="bar-completed" role="progressbar" style="width: 0%"></div>
+            <div class="progress-bar bg-success" data-aif="bar-completed" role="progressbar"
+                 style="width: {{#hassummary}}{{barcompleted}}{{/hassummary}}{{^hassummary}}0{{/hassummary}}%"></div>
             <div class="progress-bar bg-warning progress-bar-striped progress-bar-animated"
-                 data-aif="bar-pending" role="progressbar" style="width: 0%"></div>
-            <div class="progress-bar bg-danger" data-aif="bar-errors" role="progressbar" style="width: 0%"></div>
+                 data-aif="bar-pending" role="progressbar"
+                 style="width: {{#hassummary}}{{barpending}}{{/hassummary}}{{^hassummary}}0{{/hassummary}}%"></div>
+            <div class="progress-bar bg-danger" data-aif="bar-errors" role="progressbar"
+                 style="width: {{#hassummary}}{{barerrors}}{{/hassummary}}{{^hassummary}}0{{/hassummary}}%"></div>
         </div>
-        <div class="d-flex flex-wrap small text-muted" data-aif="summary-details"></div>
+        <div class="d-flex flex-wrap small text-muted" data-aif="summary-details">
+            {{#hasdetails}}{{#details}}<span class="mr-3">{{text}}</span>{{/details}}{{/hasdetails}}
+        </div>
         <div data-aif="summary-systemic-errors"></div>
     </div>
 </div>

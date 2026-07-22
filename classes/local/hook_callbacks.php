@@ -149,10 +149,13 @@ class hook_callbacks {
             return;
         }
 
-        // Render the summary widget and start the summary poller.
-        $html = $OUTPUT->render_from_template('assignfeedback_aif/feedback_summary_widget', [
-            'assignmentid' => (int) $cm->instance,
-        ]);
+        // Render the summary widget with pre-populated data and start the summary poller.
+        $summarydata = self::get_summary_data((int) $cm->instance);
+        $templatecontext = array_merge(
+            ['assignmentid' => (int) $cm->instance],
+            $summarydata
+        );
+        $html = $OUTPUT->render_from_template('assignfeedback_aif/feedback_summary_widget', $templatecontext);
         $hook->add_html($html);
 
         $PAGE->requires->js_call_amd(
@@ -160,6 +163,104 @@ class hook_callbacks {
             'init',
             [(int) $cm->instance]
         );
+    }
+
+    /**
+     * Calculate the feedback summary data for an assignment.
+     *
+     * Returns counts and systemic errors for the progress widget template.
+     * This data is also available via the get_assignment_feedback_summary webservice,
+     * but pre-populating it avoids a visible empty-shell delay on page load.
+     *
+     * @param int $assignmentid The assignment instance ID.
+     * @return array Summary data with counts, bar widths and formatted details.
+     */
+    private static function get_summary_data(int $assignmentid): array {
+        global $DB;
+
+        $aif = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
+        if (!$aif) {
+            return ['hassummary' => false];
+        }
+
+        $totalsubmissions = $DB->count_records('assign_submission', [
+            'assignment' => $assignmentid,
+            'latest' => 1,
+            'status' => 'submitted',
+        ]);
+
+        if ($totalsubmissions === 0) {
+            return ['hassummary' => false];
+        }
+
+        // Count feedback records by status.
+        $sql = "SELECT aiff.status, COUNT(*) AS cnt
+                  FROM {assignfeedback_aif_feedback} aiff
+                  JOIN {assign_submission} sub ON sub.id = aiff.submission
+                 WHERE aiff.aif = :aifid
+                   AND sub.latest = 1
+                   AND sub.status = 'submitted'
+              GROUP BY aiff.status";
+        $statuscounts = $DB->get_records_sql($sql, ['aifid' => $aif->id]);
+
+        $completed = 0;
+        $errors = 0;
+        $pending = 0;
+        foreach ($statuscounts as $row) {
+            switch ($row->status) {
+                case 'completed':
+                    $completed = (int) $row->cnt;
+                    break;
+                case 'error':
+                    $errors = (int) $row->cnt;
+                    break;
+                case 'pending':
+                    $pending = (int) $row->cnt;
+                    break;
+            }
+        }
+
+        $notstarted = max(0, $totalsubmissions - $completed - $errors - $pending);
+        $haspending = task_manager::has_pending_tasks($assignmentid);
+
+        // Calculate bar widths as percentages.
+        $barcompleted = round($completed / $totalsubmissions * 100, 1);
+        $barpending = round(($pending + $notstarted) / $totalsubmissions * 100, 1);
+        $barerrors = round($errors / $totalsubmissions * 100, 1);
+
+        // Format counts string.
+        $countstext = $completed . ' / ' . $totalsubmissions;
+
+        // Build detail parts.
+        $details = [];
+        if ($pending > 0 || $notstarted > 0 || $haspending) {
+            $details[] = [
+                'text' => '⏳ ' . ($pending + $notstarted) . ' '
+                    . get_string('widgetpending', 'assignfeedback_aif'),
+            ];
+        }
+        if ($errors > 0) {
+            $details[] = [
+                'text' => '❌ ' . $errors . ' '
+                    . get_string('widgeterrors', 'assignfeedback_aif'),
+            ];
+        }
+        if ($completed > 0) {
+            $details[] = [
+                'text' => '✅ ' . $completed . ' '
+                    . get_string('widgetcompleted', 'assignfeedback_aif'),
+            ];
+        }
+
+        return [
+            'hassummary' => true,
+            'countstext' => $countstext,
+            'barcompleted' => $barcompleted,
+            'barpending' => $barpending,
+            'barerrors' => $barerrors,
+            'details' => $details,
+            'hasdetails' => !empty($details),
+        ];
     }
 
     /**

@@ -101,7 +101,7 @@ class get_submission_analysis extends external_api {
             false
         );
 
-        $extractor = \core\di::get(\local_ai_content\extractor::class);
+        $extractor = \core\di::get(\local_ai_content\document_extractor::class);
 
         foreach ($files as $file) {
             if (!$file instanceof \stored_file) {

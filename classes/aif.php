@@ -458,7 +458,7 @@ class aif {
      * @return string Comma-separated list of uppercase file extensions (e.g. "DOC, DOCX, GIF, JPEG, PDF, PNG, TXT, WEBP").
      */
     public static function get_supported_file_extensions(): string {
-        $extractor = \core\di::get(\local_ai_content\extractor::class);
+        $extractor = \core\di::get(\local_ai_content\document_extractor::class);
         return $extractor->get_supported_extensions();
     }
 
@@ -484,7 +484,7 @@ class aif {
             return ['text' => '', 'processedfiles' => [], 'skippedfiles' => []];
         }
 
-        $extractor = \core\di::get(\local_ai_content\extractor::class);
+        $extractor = \core\di::get(\local_ai_content\document_extractor::class);
         $alltext = '';
         $processedfiles = [];
         $skippedfiles = [];
@@ -563,7 +563,7 @@ class aif {
             return '';
         }
 
-        $extractor = \core\di::get(\local_ai_content\extractor::class);
+        $extractor = \core\di::get(\local_ai_content\document_extractor::class);
         $alltext = '';
         $firsterror = null;
 
