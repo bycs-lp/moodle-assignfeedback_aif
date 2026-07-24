@@ -37,8 +37,10 @@ class task_manager {
     /**
      * Queue a feedback generation task for a single user.
      *
-     * Uses deterministic custom_data for deduplication: if an identical task
-     * is already queued, Moodle silently skips the insert.
+     * Performs manual deduplication based on assignment+userid only.
+     * Moodle's built-in deduplication also considers the task runner
+     * (set_userid), which would allow duplicate tasks when different
+     * users (student vs teacher) trigger generation for the same submission.
      *
      * @param int $assignmentid The assignment instance ID.
      * @param int $userid The user whose feedback should be generated.
@@ -46,6 +48,15 @@ class task_manager {
      * @return void
      */
     public static function queue_generation(int $assignmentid, int $userid, int $taskuserid): void {
+        // Manual deduplication: Moodle's built-in deduplication includes the
+        // task userid (set_userid) in its comparison. This means a teacher
+        // triggering regeneration would bypass deduplication when a student
+        // task for the same assignment+user is already queued. We therefore
+        // check for an existing task ourselves, based only on assignment+userid.
+        if (self::find_task_for_user($assignmentid, $userid) !== null) {
+            return;
+        }
+
         $task = new process_feedback_adhoc();
         $task->set_custom_data([
             'assignment' => intval($assignmentid),
@@ -53,7 +64,7 @@ class task_manager {
             'action' => 'generate',
         ]);
         $task->set_userid($taskuserid);
-        manager::queue_adhoc_task($task, true);
+        manager::queue_adhoc_task($task);
     }
 
     /**
