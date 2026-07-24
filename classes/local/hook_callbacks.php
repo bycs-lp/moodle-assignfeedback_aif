@@ -223,9 +223,12 @@ class hook_callbacks {
         $notstarted = max(0, $totalsubmissions - $completed - $errors - $pending);
         $haspending = task_manager::has_pending_tasks($assignmentid);
 
+        // Only count notstarted as pending when there are actually tasks queued.
+        $activepending = $pending + ($haspending ? $notstarted : 0);
+
         // Calculate bar widths as percentages.
         $barcompleted = round($completed / $totalsubmissions * 100, 1);
-        $barpending = round(($pending + $notstarted) / $totalsubmissions * 100, 1);
+        $barpending = round($activepending / $totalsubmissions * 100, 1);
         $barerrors = round($errors / $totalsubmissions * 100, 1);
 
         // Format counts string.
@@ -233,9 +236,9 @@ class hook_callbacks {
 
         // Build detail parts.
         $details = [];
-        if ($pending > 0 || $notstarted > 0 || $haspending) {
+        if ($activepending > 0) {
             $details[] = [
-                'text' => '⏳ ' . ($pending + $notstarted) . ' '
+                'text' => '⏳ ' . $activepending . ' '
                     . get_string('widgetpending', 'assignfeedback_aif'),
             ];
         }

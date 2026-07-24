@@ -125,11 +125,14 @@ const updateWidget = async(widget, assignmentId, strings) => {
         const barPending = widget.querySelector('[data-aif="bar-pending"]');
         const barErrors = widget.querySelector('[data-aif="bar-errors"]');
 
+        // Only count notstarted as pending when there are actually tasks queued.
+        const activePending = data.pending + (data.haspending ? data.notstarted : 0);
+
         if (barCompleted) {
             barCompleted.style.width = (data.completed / total * 100).toFixed(1) + '%';
         }
         if (barPending) {
-            const pendingWidth = ((data.pending + data.notstarted) / total * 100).toFixed(1);
+            const pendingWidth = (activePending / total * 100).toFixed(1);
             barPending.style.width = pendingWidth + '%';
         }
         if (barErrors) {
@@ -146,8 +149,8 @@ const updateWidget = async(widget, assignmentId, strings) => {
         const detailsEl = widget.querySelector('[data-aif="summary-details"]');
         if (detailsEl) {
             const parts = [];
-            if (data.pending > 0 || data.notstarted > 0 || data.haspending) {
-                parts.push('⏳ ' + (data.pending + data.notstarted) + ' ' + strings.widgetpending);
+            if (activePending > 0) {
+                parts.push('⏳ ' + activePending + ' ' + strings.widgetpending);
             }
             if (data.errors > 0) {
                 parts.push('❌ ' + data.errors + ' ' + strings.widgeterrors);
@@ -178,7 +181,7 @@ const updateWidget = async(widget, assignmentId, strings) => {
         }
 
         // Continue polling if there are pending tasks or in-progress items.
-        return data.haspending || data.pending > 0 || data.notstarted > 0;
+        return data.haspending || data.pending > 0;
     } catch (error) {
         Log.debug('assignfeedback_aif/feedbacksummary: poll error.');
         Log.debug(error);
