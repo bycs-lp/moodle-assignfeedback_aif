@@ -476,7 +476,8 @@ class assign_feedback_aif extends assign_feedback_plugin {
                 return \assignfeedback_aif\local\output_helper::render_error_with_retry(
                     $errormsg,
                     $submissionorgrade->assignment,
-                    $submissionorgrade->userid
+                    $submissionorgrade->userid,
+                    $this->can_retry_feedback()
                 );
             }
             // Pending status — show spinner.
@@ -539,6 +540,25 @@ class assign_feedback_aif extends assign_feedback_plugin {
     }
 
     /**
+     * Check whether the current user is allowed to retry a failed feedback generation.
+     *
+     * Teachers (with mod/assign:grade) can always retry. Students can only retry
+     * if autogenerate is enabled for this assignment, meaning the original generation
+     * was triggered on their behalf automatically.
+     *
+     * @return bool True if the current user may trigger a retry.
+     */
+    private function can_retry_feedback(): bool {
+        $context = $this->assignment->get_context();
+        // Teachers can always retry.
+        if (has_capability('mod/assign:grade', $context)) {
+            return true;
+        }
+        // Students may retry only if autogenerate is enabled.
+        return (bool) $this->get_config('autogenerate');
+    }
+
+    /**
      * Check if there is a running adhoc task with stored progress for this assignment and user.
      *
      * @param int $assignmentid The assignment instance ID.
@@ -567,7 +587,8 @@ class assign_feedback_aif extends assign_feedback_plugin {
             return \assignfeedback_aif\local\output_helper::render_error_with_retry(
                 $errormsg,
                 $submissionorgrade->assignment,
-                $submissionorgrade->userid
+                $submissionorgrade->userid,
+                $this->can_retry_feedback()
             );
         }
 
