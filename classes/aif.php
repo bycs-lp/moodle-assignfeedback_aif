@@ -298,12 +298,21 @@ class aif {
             $rubrictext = $this->get_rubric_text($assignment);
         }
 
+        // Determine which submission plugins are currently enabled for this assignment.
+        // Orphaned data of disabled submission types must be ignored (MBS-10855).
+        $cm = get_coursemodule_from_instance('assign', $assignment->aid, 0, false, MUST_EXIST);
+        $course = $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST);
+        $context = \core\context\module::instance($cm->id);
+        $assign = new \assign($context, $cm, $course);
+        $onlinetextenabled = $assign->get_submission_plugin_by_type('onlinetext')?->is_enabled();
+        $fileenabled = $assign->get_submission_plugin_by_type('file')?->is_enabled();
+
         // Get submission text from online text.
-        $onlinetextrecord = $DB->get_record(
+        $onlinetextrecord = $onlinetextenabled ? $DB->get_record(
             'assignsubmission_onlinetext',
             ['submission' => $assignment->subid],
             'onlinetext, onlineformat'
-        );
+        ) : false;
         $onlinetext = '';
         if ($onlinetextrecord && !empty($onlinetextrecord->onlinetext)) {
             // Width 0 disables wordwrap and preserves indentation in code submissions.
@@ -318,7 +327,9 @@ class aif {
         }
 
         // Get submission content from files (all files converted to text).
-        $fileresult = $this->extract_content_from_files($assignment);
+        $fileresult = $fileenabled
+            ? $this->extract_content_from_files($assignment)
+            : ['text' => '', 'processedfiles' => [], 'skippedfiles' => []];
         $filetext = $fileresult['text'];
 
         // Log unconvertible files so it's visible in the task output.

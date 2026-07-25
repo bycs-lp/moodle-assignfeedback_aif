@@ -68,6 +68,15 @@ class get_submission_analysis extends external_api {
         self::validate_context($context);
         require_capability('mod/assign:grade', $context);
 
+        $course = $DB->get_record('course', ['id' => $assignment->course], '*', MUST_EXIST);
+        $assign = new \assign($context, $cm, $course);
+
+        // Only consider submission plugins that are currently enabled for this assignment.
+        // Switching submission types leaves orphaned data of the disabled plugins in the
+        // database, which must not be taken into account for AI feedback (MBS-10855).
+        $onlinetextenabled = $assign->get_submission_plugin_by_type('onlinetext')?->is_enabled();
+        $fileenabled = $assign->get_submission_plugin_by_type('file')?->is_enabled();
+
         // Get the latest submission.
         $submission = $DB->get_record('assign_submission', [
             'assignment' => $params['assignmentid'],
@@ -84,7 +93,9 @@ class get_submission_analysis extends external_api {
         }
 
         // Check for online text.
-        $onlinetext = $DB->get_field('assignsubmission_onlinetext', 'onlinetext', ['submission' => $submission->id]);
+        $onlinetext = $onlinetextenabled
+            ? $DB->get_field('assignsubmission_onlinetext', 'onlinetext', ['submission' => $submission->id])
+            : false;
         $hasonlinetext = !empty($onlinetext);
 
         // Analyse submitted files.
@@ -92,14 +103,14 @@ class get_submission_analysis extends external_api {
         $skipped = [];
 
         $fs = get_file_storage();
-        $files = $fs->get_area_files(
+        $files = $fileenabled ? $fs->get_area_files(
             $context->id,
             'assignsubmission_file',
             'submission_files',
             $submission->id,
             'itemid, filepath, filename',
             false
-        );
+        ) : [];
 
         $extractor = \core\di::get(\local_ai_content\document_extractor::class);
 
