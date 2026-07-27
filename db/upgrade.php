@@ -233,5 +233,22 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026071702, 'assignfeedback', 'aif');
     }
 
+    if ($oldversion < 2026072700) {
+        // Purge all queued process_feedback_adhoc tasks.
+        //
+        // Earlier versions could create duplicate tasks for the same
+        // assignment/user combination because Moodle's built-in deduplication
+        // also compares the task runner (userid). Those leftover tasks block
+        // crash recovery and keep feedback records stuck in 'pending'.
+        // Removing them is safe: teachers and students can retry generation,
+        // and records left in 'pending' are picked up by crash recovery.
+        $classname = \core\task\manager::get_canonical_class_name(
+            \assignfeedback_aif\task\process_feedback_adhoc::class
+        );
+        $DB->delete_records('task_adhoc', ['classname' => $classname]);
+
+        upgrade_plugin_savepoint(true, 2026072700, 'assignfeedback', 'aif');
+    }
+
     return true;
 }

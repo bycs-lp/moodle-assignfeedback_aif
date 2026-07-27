@@ -134,4 +134,3 @@ $settings->add(new admin_setting_configtext(
     get_string('defaultpracticedisclaimer', 'assignfeedback_aif'),
     PARAM_RAW
 ));
-
