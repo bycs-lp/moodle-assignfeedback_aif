@@ -229,6 +229,7 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
         if ($dbman->table_exists($table)) {
             $dbman->drop_table($table);
         }
+        unset_config('cachecleanupdelay', 'assignfeedback_aif');
 
         upgrade_plugin_savepoint(true, 2026071702, 'assignfeedback', 'aif');
     }
