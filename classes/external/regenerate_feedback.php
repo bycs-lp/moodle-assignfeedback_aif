@@ -66,6 +66,7 @@ class regenerate_feedback extends external_api {
         $assignment = $DB->get_record('assign', ['id' => $params['assignmentid']], '*', MUST_EXIST);
         $cm = get_coursemodule_from_instance('assign', $assignment->id, $assignment->course, false, MUST_EXIST);
         $context = context_module::instance($cm->id);
+        $overviewurl = (new \moodle_url('/mod/assign/view.php', ['id' => $cm->id]))->out(false);
 
         // Validate context and capability.
         self::validate_context($context);
@@ -80,7 +81,7 @@ class regenerate_feedback extends external_api {
         if ($existingprogressid > 0) {
             return [
                 'success' => true,
-                'message' => get_string('regenerate_queued', 'assignfeedback_aif'),
+                'message' => get_string('regenerate_queued', 'assignfeedback_aif', $overviewurl),
                 'progressrecordid' => $existingprogressid,
             ];
         }
@@ -110,7 +111,7 @@ class regenerate_feedback extends external_api {
 
         return [
             'success' => true,
-            'message' => get_string('regenerate_queued', 'assignfeedback_aif'),
+            'message' => get_string('regenerate_queued', 'assignfeedback_aif', $overviewurl),
             'progressrecordid' => $progressrecordid,
         ];
     }

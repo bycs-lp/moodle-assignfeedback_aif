@@ -98,7 +98,7 @@ $string['prompttemplate_text'] = 'Die strukturierte Vorlage für den Aufbau des 
 $string['purposeplacedescription_feedback'] = 'KI-Feedback zu Abgaben von Lernenden generieren';
 $string['purposeplacedescription_itt'] = 'Eingereichte Dokumente und Bilder für KI-Feedback in Text konvertieren';
 $string['regenerate'] = 'KI-Feedback neu generieren';
-$string['regenerate_queued'] = 'Die Neugenerierung des KI-Feedbacks wurde in die Warteschlange eingereiht. Bitte warten Sie, bis die Hintergrundaufgabe abgeschlossen ist.';
+$string['regenerate_queued'] = 'Die (Neu-)Generierung des KI-Feedbacks wurde in die Warteschlange eingereiht. Den Status können Sie auf der <a href="{$a}">Aufgabenseite</a> einsehen.';
 $string['regenerating'] = 'Wird neu generiert...';
 $string['retrygeneration'] = 'Erneut versuchen';
 $string['skipreason_conversionfailed'] = 'Dateikonvertierung fehlgeschlagen';

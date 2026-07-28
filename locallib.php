@@ -411,13 +411,14 @@ class assign_feedback_aif extends assign_feedback_plugin {
      */
     public function grading_batch_operation($action, $users): string {
         $cmid = $this->assignment->get_course_module()->id;
+        $overviewurl = new \moodle_url('/mod/assign/view.php', ['id' => $cmid]);
         $gradingurl = new \moodle_url('/mod/assign/view.php', ['id' => $cmid, 'action' => 'grading']);
 
         if ($action == 'generatefeedbackai') {
             $this->process_feedbackaif($users, 'generate');
             redirect(
                 $gradingurl,
-                get_string('regenerate_queued', 'assignfeedback_aif'),
+                get_string('regenerate_queued', 'assignfeedback_aif', $overviewurl->out(false)),
                 null,
                 \core\output\notification::NOTIFY_SUCCESS
             );
