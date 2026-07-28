@@ -71,7 +71,7 @@ class aif {
         }
 
         // Only switch, when necessary.
-        if ($USER->id === $requestuserid) {
+        if (intval($USER->id) === $requestuserid) {
             return;
         }
 
