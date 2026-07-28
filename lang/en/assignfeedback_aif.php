@@ -106,6 +106,7 @@ $string['regenerating'] = 'Regenerating...';
 $string['retrygeneration'] = 'Retry';
 $string['skipreason_conversionfailed'] = 'File conversion failed';
 $string['skipreason_conversionnotsupported'] = 'File format not supported for conversion. Supported formats: {$a}';
+$string['skipreason_extractionfailed'] = 'AI content extraction failed';
 $string['skipreason_imageextractionfailed'] = 'AI image text extraction failed';
 $string['skipreason_pdfextractionfailed'] = 'AI PDF text extraction failed';
 $string['studentsubmissionainotice'] = 'This assignment uses AI-assisted feedback. When you submit your work, your submission text and uploaded files will be sent to an AI system for analysis. The AI will generate feedback on your submission.';

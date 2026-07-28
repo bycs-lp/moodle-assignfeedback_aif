@@ -103,6 +103,7 @@ $string['regenerating'] = 'Wird neu generiert...';
 $string['retrygeneration'] = 'Erneut versuchen';
 $string['skipreason_conversionfailed'] = 'Dateikonvertierung fehlgeschlagen';
 $string['skipreason_conversionnotsupported'] = 'Dateiformat wird nicht für die Konvertierung unterstützt. Unterstützte Formate: {$a}';
+$string['skipreason_extractionfailed'] = 'KI-Inhaltsextraktion fehlgeschlagen';
 $string['skipreason_imageextractionfailed'] = 'KI-Bildtextextraktion fehlgeschlagen';
 $string['skipreason_pdfextractionfailed'] = 'KI-PDF-Textextraktion fehlgeschlagen';
 $string['studentsubmissionainotice'] = 'Diese Aufgabe verwendet KI-gestütztes Feedback. Wenn Sie Ihre Arbeit abgeben, werden Ihr Abgabetext und hochgeladene Dateien zur Analyse an ein KI-System gesendet. Die KI generiert Feedback zu Ihrer Abgabe.';
