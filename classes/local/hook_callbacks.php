@@ -149,20 +149,18 @@ class hook_callbacks {
             return;
         }
 
-        // Render the summary widget with pre-populated data and start the summary poller.
+        // Render the summary widget with pre-populated data. The template loads its controller.
         $summarydata = self::get_summary_data((int) $cm->instance);
         $templatecontext = array_merge(
-            ['assignmentid' => (int) $cm->instance],
+            [
+                'assignmentid' => (int) $cm->instance,
+                'widgetid' => 'assignfeedback-aif-summary-widget-' . (int) $cm->instance,
+                'widgetselector' => '#assignfeedback-aif-summary-widget-' . (int) $cm->instance,
+            ],
             $summarydata
         );
         $html = $OUTPUT->render_from_template('assignfeedback_aif/feedback_summary_widget', $templatecontext);
         $hook->add_html($html);
-
-        $PAGE->requires->js_call_amd(
-            'assignfeedback_aif/feedbacksummary',
-            'init',
-            [(int) $cm->instance]
-        );
     }
 
     /**
@@ -180,7 +178,7 @@ class hook_callbacks {
 
         $aif = $DB->get_record('assignfeedback_aif', ['assignment' => $assignmentid]);
         if (!$aif) {
-            return ['hassummary' => false];
+            return self::empty_summary_template_context();
         }
 
         $totalsubmissions = $DB->count_records('assign_submission', [
@@ -190,7 +188,7 @@ class hook_callbacks {
         ]);
 
         if ($totalsubmissions === 0) {
-            return ['hassummary' => false];
+            return self::empty_summary_template_context();
         }
 
         // Count feedback records by status.
@@ -234,35 +232,81 @@ class hook_callbacks {
         // Format counts string.
         $countstext = $completed . ' / ' . $totalsubmissions;
 
-        // Build detail parts.
-        $details = [];
-        if ($activepending > 0) {
-            $details[] = [
-                'text' => '⏳ ' . $activepending . ' '
-                    . get_string('widgetpending', 'assignfeedback_aif'),
-            ];
-        }
+        $pendinglabel = get_string('widgetpending', 'assignfeedback_aif');
+        $errorslabel = get_string('widgeterrors', 'assignfeedback_aif');
+        $completedlabel = get_string('widgetcompleted', 'assignfeedback_aif');
+
+        // Build systemic error list shown below the progress bar.
+        $systemicerrors = [];
         if ($errors > 0) {
-            $details[] = [
-                'text' => '❌ ' . $errors . ' '
-                    . get_string('widgeterrors', 'assignfeedback_aif'),
-            ];
-        }
-        if ($completed > 0) {
-            $details[] = [
-                'text' => '✅ ' . $completed . ' '
-                    . get_string('widgetcompleted', 'assignfeedback_aif'),
-            ];
+            $sql = "SELECT aiff.errormessage, COUNT(*) AS cnt
+                      FROM {assignfeedback_aif_feedback} aiff
+                      JOIN {assign_submission} sub ON sub.id = aiff.submission
+                     WHERE aiff.aif = :aifid
+                       AND aiff.status = 'error'
+                       AND aiff.errormessage IS NOT NULL
+                       AND aiff.errormessage <> ''
+                       AND sub.latest = 1
+                       AND sub.status = 'submitted'
+                  GROUP BY aiff.errormessage
+                    HAVING COUNT(*) > 1
+                  ORDER BY cnt DESC";
+            $records = $DB->get_records_sql($sql, ['aifid' => $aif->id]);
+            foreach ($records as $record) {
+                $systemicerrors[] = [
+                    'message' => $record->errormessage,
+                    'counttext' => get_string('widgetsystemicerror', 'assignfeedback_aif', (int) $record->cnt),
+                ];
+            }
         }
 
         return [
+            'showwidget' => true,
             'hassummary' => true,
             'countstext' => $countstext,
             'barcompleted' => $barcompleted,
             'barpending' => $barpending,
             'barerrors' => $barerrors,
-            'details' => $details,
-            'hasdetails' => !empty($details),
+            'hasdetails' => ($activepending > 0 || $errors > 0 || $completed > 0),
+            'hasactivepending' => $activepending > 0,
+            'activependingcount' => $activepending,
+            'pendinglabel' => $pendinglabel,
+            'haserrors' => $errors > 0,
+            'errorscount' => $errors,
+            'errorslabel' => $errorslabel,
+            'hascompleted' => $completed > 0,
+            'completedcount' => $completed,
+            'completedlabel' => $completedlabel,
+            'systemicerrors' => $systemicerrors,
+            'hassystemicerrors' => !empty($systemicerrors),
+        ];
+    }
+
+    /**
+     * Return an empty template context for the feedback summary widget.
+     *
+     * @return array Empty summary context.
+     */
+    private static function empty_summary_template_context(): array {
+        return [
+            'showwidget' => false,
+            'hassummary' => false,
+            'countstext' => '',
+            'barcompleted' => 0,
+            'barpending' => 0,
+            'barerrors' => 0,
+            'hasdetails' => false,
+            'hasactivepending' => false,
+            'activependingcount' => 0,
+            'pendinglabel' => '',
+            'haserrors' => false,
+            'errorscount' => 0,
+            'errorslabel' => '',
+            'hascompleted' => false,
+            'completedcount' => 0,
+            'completedlabel' => '',
+            'systemicerrors' => [],
+            'hassystemicerrors' => false,
         ];
     }
 
