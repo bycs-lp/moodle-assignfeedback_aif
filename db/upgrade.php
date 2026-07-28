@@ -179,11 +179,12 @@ function xmldb_assignfeedback_aif_upgrade($oldversion) {
               WHERE feedback IS NOT NULL AND feedback <> ''"
         );
 
-        // Step 5: Migrate error records — those with _error in skippedfiles.
+        // Step 5: Migrate error records — those with literal '_error' in skippedfiles.
+        $likesql = $DB->sql_like('skippedfiles', ':pattern');
         $errorrecords = $DB->get_records_select(
             'assignfeedback_aif_feedback',
-            "skippedfiles LIKE :pattern AND (feedback IS NULL OR feedback = '')",
-            ['pattern' => '%_error%']
+            $likesql . " AND (feedback IS NULL OR feedback = '')",
+            ['pattern' => '%' . $DB->sql_like_escape('_error') . '%']
         );
         foreach ($errorrecords as $rec) {
             $skipped = json_decode($rec->skippedfiles, true);
