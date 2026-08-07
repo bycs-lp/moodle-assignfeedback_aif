@@ -254,6 +254,25 @@ class aif {
     }
 
     /**
+     * Determine which submission plugins relevant for AI feedback are enabled for an assignment.
+     *
+     * Switching submission types leaves orphaned data of the disabled plugins in the
+     * database, which must not be taken into account for AI feedback.
+     *
+     * @param \assign $assign The assign instance.
+     * @return array Associative array with keys 'onlinetext' and 'file', each mapping to a bool
+     *  indicating whether the respective submission plugin is enabled.
+     */
+    public static function get_enabled_submission_plugins(\assign $assign): array {
+        $onlinetextplugin = $assign->get_submission_plugin_by_type('onlinetext');
+        $fileplugin = $assign->get_submission_plugin_by_type('file');
+        return [
+            'onlinetext' => $onlinetextplugin ? $onlinetextplugin->is_enabled() : false,
+            'file' => $fileplugin ? $fileplugin->is_enabled() : false,
+        ];
+    }
+
+    /**
      * Get prompt for a given assignment submission.
      *
      * Extracts text from all submitted content (online text, documents, images, PDFs)
@@ -304,8 +323,9 @@ class aif {
         $course = $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST);
         $context = \core\context\module::instance($cm->id);
         $assign = new \assign($context, $cm, $course);
-        $onlinetextenabled = $assign->get_submission_plugin_by_type('onlinetext')?->is_enabled();
-        $fileenabled = $assign->get_submission_plugin_by_type('file')?->is_enabled();
+        $enabledplugins = self::get_enabled_submission_plugins($assign);
+        $onlinetextenabled = $enabledplugins['onlinetext'];
+        $fileenabled = $enabledplugins['file'];
 
         // Get submission text from online text.
         $onlinetextrecord = $onlinetextenabled ? $DB->get_record(

@@ -44,7 +44,7 @@ final class get_submission_analysis_test extends \advanced_testcase {
     use \assignfeedback_aif\aif_test_helper;
 
     /**
-     * Online text submitted before switching to file submission must be ignored (MBS-10855).
+     * Online text submitted before switching to file submission must be ignored.
      *
      * When the teacher switches the submission type after the student has submitted online
      * text, mod_assign keeps the orphaned assignsubmission_onlinetext row. The analysis must

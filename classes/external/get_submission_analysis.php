@@ -73,9 +73,10 @@ class get_submission_analysis extends external_api {
 
         // Only consider submission plugins that are currently enabled for this assignment.
         // Switching submission types leaves orphaned data of the disabled plugins in the
-        // database, which must not be taken into account for AI feedback (MBS-10855).
-        $onlinetextenabled = $assign->get_submission_plugin_by_type('onlinetext')?->is_enabled();
-        $fileenabled = $assign->get_submission_plugin_by_type('file')?->is_enabled();
+        // database, which must not be taken into account for AI feedback.
+        $enabledplugins = \assignfeedback_aif\aif::get_enabled_submission_plugins($assign);
+        $onlinetextenabled = $enabledplugins['onlinetext'];
+        $fileenabled = $enabledplugins['file'];
 
         // Get the latest submission.
         $submission = $DB->get_record('assign_submission', [
@@ -103,14 +104,17 @@ class get_submission_analysis extends external_api {
         $skipped = [];
 
         $fs = get_file_storage();
-        $files = $fileenabled ? $fs->get_area_files(
-            $context->id,
-            'assignsubmission_file',
-            'submission_files',
-            $submission->id,
-            'itemid, filepath, filename',
-            false
-        ) : [];
+        $files = [];
+        if ($fileenabled) {
+            $files = $fs->get_area_files(
+                $context->id,
+                'assignsubmission_file',
+                'submission_files',
+                $submission->id,
+                'itemid, filepath, filename',
+                false
+            );
+        }
 
         $extractor = \core\di::get(\local_ai_content\document_extractor::class);
 
