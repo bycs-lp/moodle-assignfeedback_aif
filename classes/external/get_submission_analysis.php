@@ -55,8 +55,8 @@ class get_submission_analysis extends external_api {
      * @return array Analysis result with file lists.
      */
     public static function execute(int $assignmentid, int $userid): array {
-        global $DB;
-
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
         $params = self::validate_parameters(self::execute_parameters(), [
             'assignmentid' => $assignmentid,
             'userid' => $userid,
