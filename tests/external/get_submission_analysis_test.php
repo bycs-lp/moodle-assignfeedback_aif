@@ -131,45 +131,4 @@ final class get_submission_analysis_test extends \advanced_testcase {
         $this->assertEmpty($result['processablefiles']);
         $this->assertEmpty($result['skippedfiles']);
     }
-
-    /**
-     * Enable or disable a submission plugin on the assignment, mirroring what mod_assign
-     * stores when a teacher changes the submission type in the activity settings.
-     *
-     * @param \stdClass $env The test environment.
-     * @param string $type The submission plugin type (e.g. 'onlinetext', 'file').
-     * @param bool $enabled Whether the plugin should be enabled.
-     */
-    private function set_submission_plugin_enabled(\stdClass $env, string $type, bool $enabled): void {
-        global $DB;
-        $DB->set_field('assign_plugin_config', 'value', $enabled ? 1 : 0, [
-            'assignment' => $env->assign->id,
-            'subtype' => 'assignsubmission',
-            'plugin' => $type,
-            'name' => 'enabled',
-        ]);
-    }
-
-    /**
-     * Add a file to the student's submission file area.
-     *
-     * The analysis function reads submitted files directly from the file area, so placing the
-     * file there is sufficient and avoids invoking the submission plugin's form-dependent save().
-     *
-     * @param \stdClass $env The test environment.
-     * @param string $filename The name of the file to store in the submission.
-     */
-    private function add_file_submission(\stdClass $env, string $filename): void {
-        $this->setUser($env->student);
-        $submission = $env->assignobj->get_user_submission($env->student->id, true);
-
-        get_file_storage()->create_file_from_string([
-            'contextid' => $env->context->id,
-            'component' => 'assignsubmission_file',
-            'filearea' => 'submission_files',
-            'itemid' => $submission->id,
-            'filepath' => '/',
-            'filename' => $filename,
-        ], 'File submission content');
-    }
 }
