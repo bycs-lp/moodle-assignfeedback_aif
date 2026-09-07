@@ -48,6 +48,11 @@ class task_manager {
      * @return void
      */
     public static function queue_generation(int $assignmentid, int $userid, int $taskuserid): void {
+        // Failed tasks without remaining attempts never run again. Core keeps them for
+        // weeks, and they would make has_pending_tasks() and Moodle's own deduplication
+        // report a task that does not exist from the plugin's point of view.
+        self::purge_dead_tasks($assignmentid, $userid);
+
         // Manual deduplication: Moodle's built-in deduplication includes the
         // task userid (set_userid) in its comparison. This means a teacher
         // triggering regeneration would bypass deduplication when a student
@@ -135,6 +140,47 @@ class task_manager {
     }
 
     /**
+     * Check whether a task has failed for good and will never be run again.
+     *
+     * process_feedback_adhoc does not retry until success, so core marks a failed
+     * or orphaned task with zero remaining attempts instead of rescheduling it.
+     *
+     * @param process_feedback_adhoc $task The task to check.
+     * @return bool True if the task has no attempts left.
+     */
+    private static function is_task_dead(process_feedback_adhoc $task): bool {
+        return $task->get_attempts_available() === 0;
+    }
+
+    /**
+     * Check whether a task belongs to the given assignment and user.
+     *
+     * @param process_feedback_adhoc $task The task to check.
+     * @param int $assignmentid The assignment instance ID.
+     * @param int $userid The user ID.
+     * @return bool True if the task's custom data matches.
+     */
+    private static function matches_user(process_feedback_adhoc $task, int $assignmentid, int $userid): bool {
+        $data = $task->get_custom_data();
+        return isset($data->assignment) && (int) $data->assignment === $assignmentid
+            && isset($data->userid) && (int) $data->userid === $userid;
+    }
+
+    /**
+     * Delete failed tasks without remaining attempts for the given assignment and user.
+     *
+     * @param int $assignmentid The assignment instance ID.
+     * @param int $userid The user ID.
+     */
+    private static function purge_dead_tasks(int $assignmentid, int $userid): void {
+        foreach (manager::get_adhoc_tasks(process_feedback_adhoc::class) as $task) {
+            if (self::matches_user($task, $assignmentid, $userid) && self::is_task_dead($task)) {
+                manager::delete_adhoc_task($task->get_id());
+            }
+        }
+    }
+
+    /**
      * Check whether the task for the given assignment and user is already being processed.
      *
      * A running task can neither be re-pointed to another task runner nor have
@@ -150,20 +196,18 @@ class task_manager {
     }
 
     /**
-     * Find a queued adhoc task for a specific assignment and user.
+     * Find a queued or running adhoc task for a specific assignment and user.
+     *
+     * Tasks that have failed for good are ignored: they will never run, so
+     * treating them as queued would block re-queueing and crash recovery.
      *
      * @param int $assignmentid The assignment instance ID.
      * @param int $userid The user ID.
      * @return process_feedback_adhoc|null The matching task, or null if none found.
      */
     public static function find_task_for_user(int $assignmentid, int $userid): ?process_feedback_adhoc {
-        $tasks = manager::get_adhoc_tasks(process_feedback_adhoc::class);
-        foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (
-                isset($data->assignment) && (int) $data->assignment === $assignmentid
-                && isset($data->userid) && (int) $data->userid === $userid
-            ) {
+        foreach (manager::get_adhoc_tasks(process_feedback_adhoc::class) as $task) {
+            if (self::matches_user($task, $assignmentid, $userid) && !self::is_task_dead($task)) {
                 return $task;
             }
         }
@@ -189,6 +233,7 @@ class task_manager {
         $sql = "SELECT 1
                   FROM {task_adhoc}
                  WHERE classname = :classname
+                   AND (attemptsavailable IS NULL OR attemptsavailable > 0)
                    AND " . $DB->sql_like('customdata', ':pattern');
         return $DB->record_exists_sql($sql, [
             'classname' => $classname,
@@ -210,11 +255,7 @@ class task_manager {
         // Reverse to find the most recently queued task first.
         $tasks = array_reverse($tasks);
         foreach ($tasks as $task) {
-            $data = $task->get_custom_data();
-            if (
-                isset($data->assignment) && (int) $data->assignment === $assignmentid
-                && isset($data->userid) && (int) $data->userid === $userid
-            ) {
+            if (self::matches_user($task, $assignmentid, $userid) && !self::is_task_dead($task)) {
                 $idnumber = stored_progress_bar::convert_to_idnumber(
                     process_feedback_adhoc::class . '_' . $task->get_id()
                 );

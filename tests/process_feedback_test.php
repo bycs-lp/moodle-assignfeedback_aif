@@ -754,6 +754,65 @@ final class process_feedback_test extends \advanced_testcase {
     }
 
     /**
+     * Test that a task which failed for good does not block re-queueing or crash recovery.
+     *
+     * Core keeps failed tasks without remaining attempts in the queue for weeks. Such a task
+     * must be treated as non-existent: a pending feedback record has to be recovered as an
+     * error, and a new trigger by the same user must queue a fresh task and remove the corpse.
+     *
+     * @covers \assignfeedback_aif\local\task_manager::queue_generation
+     * @covers \assignfeedback_aif\local\task_manager::find_task_for_user
+     * @covers \assignfeedback_aif\local\task_manager::has_pending_tasks
+     */
+    public function test_dead_task_is_ignored_and_replaced(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env, 'Student work');
+        $aifid = $this->create_aif_config($env, 'Test');
+        $taskmanager = \assignfeedback_aif\local\task_manager::class;
+
+        // A task ran, wrote its pending lock record and then died. Core's cleanup marks such
+        // an orphaned task as failed, which leaves it with zero attempts because the task
+        // does not retry until success.
+        $taskmanager::queue_generation($env->assign->id, $env->student->id, $env->teacher->id);
+        $task = \core\task\manager::get_next_adhoc_task(time(), false, process_feedback_adhoc::class);
+        $this->assertNotNull($task);
+        $submission = $DB->get_record('assign_submission', ['assignment' => $env->assign->id, 'userid' => $env->student->id]);
+        $DB->insert_record('assignfeedback_aif_feedback', (object) [
+            'aif' => $aifid,
+            'submission' => $submission->id,
+            'feedback' => '',
+            'feedbackformat' => FORMAT_HTML,
+            'status' => 'pending',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        \core\task\manager::adhoc_task_failed($task, false);
+        $deadtaskid = $task->get_id();
+        $this->assertEquals(0, $DB->get_field('task_adhoc', 'attemptsavailable', ['id' => $deadtaskid]));
+
+        // The dead task is invisible to all lookups, so the pending record is recovered as an error.
+        $this->assertNull($taskmanager::find_task_for_user($env->assign->id, $env->student->id));
+        $this->assertFalse($taskmanager::is_task_running_for_user($env->assign->id, $env->student->id));
+        $this->assertFalse($taskmanager::has_pending_tasks($env->assign->id));
+        $record = \assignfeedback_aif\local\feedback_utils::get_feedbackaif($env->assign->id, $env->student->id);
+        $this->assertEquals('error', $record->status);
+
+        // Triggering again as the same user replaces the corpse with a fresh task.
+        $taskmanager::queue_generation($env->assign->id, $env->student->id, $env->teacher->id);
+
+        $this->assertFalse($DB->record_exists('task_adhoc', ['id' => $deadtaskid]));
+        $tasks = \core\task\manager::get_adhoc_tasks(process_feedback_adhoc::class);
+        $this->assertCount(1, $tasks);
+        $newtask = reset($tasks);
+        $this->assertNotEquals($deadtaskid, $newtask->get_id());
+        $this->assertEmpty($newtask->get_timestarted());
+        $this->assertTrue($taskmanager::has_pending_tasks($env->assign->id));
+    }
+
+    /**
      * Test the regenerate_feedback external API requires grade capability.
      *
      * @covers \assignfeedback_aif\external\regenerate_feedback::execute
