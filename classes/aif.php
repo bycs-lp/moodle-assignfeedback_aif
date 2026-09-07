@@ -58,49 +58,30 @@ class aif {
     }
 
     /**
-     * Set the user ID for AI requests, switching the global $USER context if necessary.
-     *
-     * @param int|null $requestuserid The user ID to use for AI requests, null means use current $USER.
-     */
-    protected function setup_user(?int $requestuserid): void {
-        global $USER;
-
-        if (empty($requestuserid)) {
-            \core\cron::setup_user();
-            return;
-        }
-
-        // Only switch, when necessary.
-        if (intval($USER->id) === $requestuserid) {
-            return;
-        }
-
-        // Check if user exists.
-        if (!$user = \core\user::get_user($requestuserid)) {
-            return;
-        }
-
-        // If user is different and exists, switch to it.
-        \core\cron::setup_user($user);
-    }
-
-    /**
      * Perform AI request using the configured backend.
      *
      * Uses the DI-injectable ai_request_provider. In tests, replace it
      * via \core\di::set(ai_request_provider::class, $mock).
      *
+     * Precondition for the local_ai_manager backend: the global $USER must already be
+     * the user given in $userid, because local_ai_manager attributes terms of use,
+     * availability and quota to the currently logged in user and offers no way to pass
+     * a user explicitly. Callers running in a task context must therefore switch the
+     * user with \core\cron::setup_user() before calling this method.
+     *
      * @param string $prompt The prompt to send to the AI.
+     * @param int $userid The user the AI request is performed for.
      * @param string $purpose The purpose of the request (for local_ai_manager).
      * @param array $options Additional options (e.g., 'image' for ITT requests).
-     * @param int $userid The user to attribute the AI request to. Defaults to current $USER.
      * @return string The AI response.
-     * @throws \moodle_exception
+     * @throws \moodle_exception If no valid user was given or if the current user does not
+     *  match the user the request should be performed for.
      */
-    public function perform_request(string $prompt, string $purpose = 'feedback', array $options = [], int $userid = 0): string {
-        if ($userid === 0) {
-            global $USER;
-            $userid = $USER->id;
+    public function perform_request(string $prompt, int $userid, string $purpose = 'feedback', array $options = []): string {
+        global $USER;
+
+        if ($userid <= 0) {
+            throw new \moodle_exception('errornoactinguser', 'assignfeedback_aif');
         }
 
         $provider = \core\di::get(ai_request_provider::class);
@@ -108,6 +89,11 @@ class aif {
         $backend = get_config('assignfeedback_aif', 'backend') ?: 'core_ai_subsystem';
 
         if ($backend === 'local_ai_manager') {
+            // Enforce the precondition described above: local_ai_manager silently uses
+            // the global $USER, so a mismatch would attribute the request to the wrong user.
+            if ((int) $USER->id !== $userid) {
+                throw new \moodle_exception('errorwrongactinguser', 'assignfeedback_aif');
+            }
             return $provider->perform_request_local_ai_manager($prompt, $purpose, $this->contextid, $options);
         } else {
             return $provider->perform_request_core_ai($prompt, $this->contextid, $userid);
@@ -282,10 +268,14 @@ class aif {
      *
      * @param stdClass $assignment The assignment data object.
      * @param string $gradingmethod The grading method (e.g., 'rubric').
+     * @param int $actinguserid The id of the user that is being used to perform the AI request for extracting text
+     *  from documents and images.
      * @return array Array with 'prompt' string, 'options' array, and 'skippedfiles' array.
      */
-    public function get_prompt(stdClass $assignment, string $gradingmethod): array {
-        global $DB;
+    public function get_prompt(stdClass $assignment, string $gradingmethod, int $actinguserid): array {
+        global $CFG, $DB;
+
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
 
         mtrace("Assignment {$assignment->aid} submission {$assignment->subid} user {$assignment->userid}");
 
@@ -348,7 +338,7 @@ class aif {
 
         // Get submission content from files (all files converted to text).
         $fileresult = $fileenabled
-            ? $this->extract_content_from_files($assignment)
+            ? $this->extract_content_from_files($assignment, $actinguserid)
             : ['text' => '', 'processedfiles' => [], 'skippedfiles' => []];
         $filetext = $fileresult['text'];
 
@@ -373,7 +363,7 @@ class aif {
         // Only included when the useintroattachments setting is enabled.
         $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => $assignment->aid]);
         if (!empty($aifconfig->useintroattachments)) {
-            $introattachmenttext = $this->extract_introattachment_content($assignment);
+            $introattachmenttext = $this->extract_introattachment_content($assignment, $actinguserid);
             if (!empty($introattachmenttext)) {
                 $description .= "\n\n" . get_string('introattachmentsheading', 'assignfeedback_aif')
                     . "\n" . $introattachmenttext;
@@ -500,10 +490,11 @@ class aif {
      * which handles caching, AI backend calls, and document conversion.
      *
      * @param stdClass $assignment The assignment data object.
+     * @param int $actinguserid The user all extraction requests are performed for.
      * @return array Associative array with 'text' (combined text), 'processedfiles' (list of names),
      *               and 'skippedfiles' (list of arrays with 'filename' and 'reason' keys).
      */
-    protected function extract_content_from_files(stdClass $assignment): array {
+    protected function extract_content_from_files(stdClass $assignment, int $actinguserid): array {
         $fs = get_file_storage();
         $contextid = $assignment->contextid;
         $component = 'assignsubmission_file';
@@ -541,7 +532,7 @@ class aif {
                 $text = $extractor->extract_text_from_file(
                     $file,
                     $contextid,
-                    $assignment->userid ?? null,
+                    $actinguserid,
                     'assignfeedback_aif'
                 );
                 if (!empty($text)) {
@@ -576,10 +567,11 @@ class aif {
      * Delegates per-file extraction to local_ai_content's extractor service.
      *
      * @param stdClass $assignment The assignment data object.
+     * @param int $actinguserid The user the extraction requests are performed for when the file has no owner.
      * @return string The combined extracted text from introattachment files.
      * @throws \moodle_exception If extraction fails for any file.
      */
-    protected function extract_introattachment_content(stdClass $assignment): string {
+    protected function extract_introattachment_content(stdClass $assignment, int $actinguserid): string {
         $fs = get_file_storage();
         $files = $fs->get_area_files(
             $assignment->contextid,
@@ -610,12 +602,17 @@ class aif {
             }
 
             try {
-                // Use the file owner (teacher) for ITT requests so that
-                // ToS checks and quota are attributed correctly.
+                // Deliberate exception to the "all AI requests of one generation run under
+                // one user" rule: introattachments are teaching material of the teacher, so
+                // the file owner is preferred for ITT requests and terms of use checks and
+                // quota are attributed to the author of the material. Restored or system
+                // generated files may have no owner, in which case the acting user is used
+                // so that an AI request is never performed without a user behind it.
+                $fileowner = (int) $file->get_userid();
                 $text = $extractor->extract_text_from_file(
                     $file,
                     $assignment->contextid,
-                    $file->get_userid(),
+                    $fileowner > 0 ? $fileowner : $actinguserid,
                     'assignfeedback_aif'
                 );
                 if (!empty($text)) {

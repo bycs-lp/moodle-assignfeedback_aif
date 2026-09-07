@@ -120,6 +120,38 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
     }
 
     /**
+     * Determine the user under whose identity all AI operations must be executed.
+     *
+     * The acting user is the task runner: an automatically triggered generation is queued
+     * as the student who submitted, a manual or bulk generation as the teacher who triggered
+     * it. The same identity is used for content extraction (image/PDF to text) and for the AI
+     * feedback request, so availability checks, terms of use confirmation and quota are always
+     * attributed to one and the same user. Tasks queued without a task runner fall back to the
+     * student the feedback is generated for.
+     *
+     * @param \stdClass $record The submission record, used as fallback if the task has no runner.
+     * @return \stdClass The acting user record.
+     * @throws \moodle_exception If no valid acting user can be resolved.
+     */
+    private function get_acting_user(\stdClass $record): \stdClass {
+        $actinguserid = (int) $this->get_userid();
+        if ($actinguserid <= 0) {
+            $actinguserid = (int) $record->userid;
+        }
+
+        if ($actinguserid <= 0) {
+            throw new \moodle_exception('errornoactinguser', 'assignfeedback_aif');
+        }
+
+        $actinguser = \core_user::get_user($actinguserid);
+        if (!$actinguser) {
+            throw new \moodle_exception('errornoactinguser', 'assignfeedback_aif');
+        }
+
+        return $actinguser;
+    }
+
+    /**
      * Generate AI feedback for a submission.
      *
      * Reports granular progress steps: 10%, 30%, 50%, 90%.
@@ -182,60 +214,61 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         // Step 2: Extracting submission content (30%).
         $this->progress->update_full(30, get_string('progressstepextracting', 'assignfeedback_aif'));
 
-        // Determine the actual grading method for this assignment.
-        $context = \core\context::instance_by_id($record->contextid);
-        $gradingmanager = get_grading_manager($context, 'mod_assign', 'submissions');
-        $gradingmethod = $gradingmanager->get_active_method() ?: 'simple';
-
+        // Single source of truth for the identity under which all AI operations run
+        // (content extraction as well as the feedback request itself).
         try {
-            $promptdata = $aif->get_prompt($record, $gradingmethod);
-        } catch (\Exception $e) {
+            $actinguser = $this->get_acting_user($record);
+        } catch (\moodle_exception $e) {
             $this->save_error_feedback($record, $e->getMessage());
-            mtrace("Failed to build prompt for submission {$record->subid}: " . $e->getMessage());
+            mtrace("Cannot determine the acting user for submission {$record->subid}: " . $e->getMessage());
             return $e->getMessage();
         }
-        if (empty($promptdata['prompt'])) {
-            // Build an informative error message including skipped file details.
-            $errormsg = get_string('erroremptysubmission', 'assignfeedback_aif');
-            if (!empty($promptdata['skippedfiles'])) {
-                $filelist = [];
-                foreach ($promptdata['skippedfiles'] as $skipped) {
-                    $reasonkey = $skipped['reason'] ?? 'skipreason_conversionnotsupported';
-                    $reasondata = $skipped['reasondata'] ?? null;
-                    $reason = get_string($reasonkey, 'assignfeedback_aif', $reasondata);
-                    if (!empty($skipped['errormessage'])) {
-                        $reason .= ': ' . $skipped['errormessage'];
-                    }
-                    $filelist[] = $skipped['filename'] . ' (' . $reason . ')';
-                }
-                $errormsg .= ' ' . get_string('errorskippedfilesdetail', 'assignfeedback_aif', implode(', ', $filelist));
-            }
-            $this->save_error_feedback($record, $errormsg);
-            mtrace("No submission text found for submission {$record->subid}.");
-            return $errormsg;
-        }
-
-        // Step 3: Requesting AI feedback (50%).
-        $this->progress->update_full(50, get_string('progresssteprequesting', 'assignfeedback_aif'));
 
         // All content (including images and PDFs) is now converted to text during
         // prompt building, so we always use the default feedback purpose.
         $provider = \core\di::get(\assignfeedback_aif\local\ai_request_provider::class);
         $purpose = 'feedback';
 
-        // Determine the user context for the AI request:
-        // - Manual triggers (teacher clicks regenerate): use the teacher's identity so
-        // quota and responsibility are attributed to the teacher.
-        // - Automatic triggers (student submission): use the student's identity.
-        if ($triggeredby === 'manual') {
-            $taskuserid = $this->get_userid();
-            $requestuser = $taskuserid ? (\core_user::get_user($taskuserid) ?: null) : null;
-        } else {
-            $requestuser = \core_user::get_user($record->userid) ?: null;
-        }
-
+        // Everything from here on runs as the acting user, so availability checks, terms of
+        // use and quota are attributed consistently to one user, regardless of whether the AI
+        // backend takes the user from the passed parameters or from the global $USER.
+        \core\cron::setup_user($actinguser);
         try {
-            \core\cron::setup_user($requestuser);
+            // Determine the actual grading method for this assignment.
+            $context = \core\context::instance_by_id($record->contextid);
+            $gradingmanager = get_grading_manager($context, 'mod_assign', 'submissions');
+            $gradingmethod = $gradingmanager->get_active_method() ?: 'simple';
+
+            try {
+                $promptdata = $aif->get_prompt($record, $gradingmethod, (int) $actinguser->id);
+            } catch (\Exception $e) {
+                $this->save_error_feedback($record, $e->getMessage());
+                mtrace("Failed to build prompt for submission {$record->subid}: " . $e->getMessage());
+                return $e->getMessage();
+            }
+            if (empty($promptdata['prompt'])) {
+                // Build an informative error message including skipped file details.
+                $errormsg = get_string('erroremptysubmission', 'assignfeedback_aif');
+                if (!empty($promptdata['skippedfiles'])) {
+                    $filelist = [];
+                    foreach ($promptdata['skippedfiles'] as $skipped) {
+                        $reasonkey = $skipped['reason'] ?? 'skipreason_conversionnotsupported';
+                        $reasondata = $skipped['reasondata'] ?? null;
+                        $reason = get_string($reasonkey, 'assignfeedback_aif', $reasondata);
+                        if (!empty($skipped['errormessage'])) {
+                            $reason .= ': ' . $skipped['errormessage'];
+                        }
+                        $filelist[] = $skipped['filename'] . ' (' . $reason . ')';
+                    }
+                    $errormsg .= ' ' . get_string('errorskippedfilesdetail', 'assignfeedback_aif', implode(', ', $filelist));
+                }
+                $this->save_error_feedback($record, $errormsg);
+                mtrace("No submission text found for submission {$record->subid}.");
+                return $errormsg;
+            }
+
+            // Step 3: Requesting AI feedback (50%).
+            $this->progress->update_full(50, get_string('progresssteprequesting', 'assignfeedback_aif'));
 
             $unavailablereason = $provider->get_unavailability_reason($purpose, $record->contextid);
             if ($unavailablereason !== null) {
@@ -245,11 +278,13 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
                 return $errormsg;
             }
 
+            // The AI request runs under the very same identity that was already used for
+            // content extraction.
             $aifeedback = $aif->perform_request(
                 $promptdata['prompt'],
+                (int) $actinguser->id,
                 'feedback',
-                $promptdata['options'],
-                $requestuser ? $requestuser->id : 0
+                $promptdata['options']
             );
         } catch (\Exception $e) {
             $debuginfo = ($e instanceof \moodle_exception && !empty($e->debuginfo)) ? $e->debuginfo : '';
