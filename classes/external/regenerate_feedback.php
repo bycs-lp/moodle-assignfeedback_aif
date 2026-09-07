@@ -68,6 +68,19 @@ class regenerate_feedback extends external_api {
         self::validate_context($context);
         require_capability('mod/assign:grade', $context);
 
+        // A running task can no longer be re-pointed to the current user. Report its
+        // progress instead of removing the feedback record it is about to write.
+        if (\assignfeedback_aif\local\task_manager::is_task_running_for_user($params['assignmentid'], $params['userid'])) {
+            return [
+                'success' => true,
+                'message' => get_string('regenerate_queued', 'assignfeedback_aif'),
+                'progressrecordid' => \assignfeedback_aif\local\task_manager::get_progress_id_for_user(
+                    $params['assignmentid'],
+                    $params['userid']
+                ),
+            ];
+        }
+
         // Delete existing feedback immediately so the UI reflects the regeneration.
         $aifconfig = $DB->get_record('assignfeedback_aif', ['assignment' => $params['assignmentid']]);
         if ($aifconfig) {

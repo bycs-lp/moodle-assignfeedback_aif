@@ -669,6 +669,91 @@ final class process_feedback_test extends \advanced_testcase {
     }
 
     /**
+     * Test that manual regenerate leaves an already running task and its progress record untouched.
+     *
+     * A running task holds its stored_progress record by id and has written a pending
+     * feedback record. Re-initialising the progress or deleting the feedback would make
+     * the teacher's progress bar hang and the task fall back to re-inserting feedback.
+     *
+     * @covers \assignfeedback_aif\external\regenerate_feedback::execute
+     * @covers \assignfeedback_aif\local\task_manager::queue_generation_with_progress
+     */
+    public function test_regenerate_external_api_keeps_running_task_and_progress(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env, 'Student work');
+        $aifid = $this->create_aif_config($env, 'Test');
+
+        // The automatic task was queued as the student and has been picked up by cron.
+        \assignfeedback_aif\local\task_manager::queue_generation(
+            $env->assign->id,
+            $env->student->id,
+            $env->student->id
+        );
+        $runningtask = \assignfeedback_aif\local\task_manager::find_task_for_user($env->assign->id, $env->student->id);
+        \core\task\manager::adhoc_task_starting($runningtask);
+        $runningtask->initialise_stored_progress();
+        $progressid = \assignfeedback_aif\local\task_manager::get_progress_id_for_user($env->assign->id, $env->student->id);
+        $this->assertGreaterThan(0, $progressid);
+
+        // The running task has written its pending lock record.
+        $submission = $DB->get_record('assign_submission', ['assignment' => $env->assign->id, 'userid' => $env->student->id]);
+        $DB->insert_record('assignfeedback_aif_feedback', (object) [
+            'aif' => $aifid,
+            'submission' => $submission->id,
+            'feedback' => '',
+            'feedbackformat' => FORMAT_HTML,
+            'status' => 'pending',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $this->setUser($env->teacher);
+        $result = regenerate_feedback::execute($env->assign->id, $env->student->id);
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals($progressid, $result['progressrecordid']);
+        $this->assertTrue($DB->record_exists('stored_progress', ['id' => $progressid]));
+        $this->assertEquals(1, $DB->count_records('assignfeedback_aif_feedback', ['aif' => $aifid]));
+
+        $tasks = \core\task\manager::get_adhoc_tasks(process_feedback_adhoc::class);
+        $this->assertCount(1, $tasks);
+        $task = reset($tasks);
+        $this->assertEquals($runningtask->get_id(), $task->get_id());
+        $this->assertEquals($env->student->id, $task->get_userid());
+    }
+
+    /**
+     * Test that repeated progress initialisation reuses the existing stored_progress record.
+     *
+     * @covers \assignfeedback_aif\local\task_manager::queue_generation_with_progress
+     */
+    public function test_queue_generation_with_progress_reuses_existing_record(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_aif_config($env, 'Test');
+
+        $first = \assignfeedback_aif\local\task_manager::queue_generation_with_progress(
+            $env->assign->id,
+            $env->student->id,
+            $env->teacher->id
+        );
+        $second = \assignfeedback_aif\local\task_manager::queue_generation_with_progress(
+            $env->assign->id,
+            $env->student->id,
+            $env->teacher->id
+        );
+
+        $this->assertGreaterThan(0, $first);
+        $this->assertEquals($first, $second);
+        $this->assertEquals(1, $DB->count_records('stored_progress'));
+    }
+
+    /**
      * Test the regenerate_feedback external API requires grade capability.
      *
      * @covers \assignfeedback_aif\external\regenerate_feedback::execute

@@ -56,7 +56,7 @@ class task_manager {
         $existingtask = self::find_task_for_user($assignmentid, $userid);
         if ($existingtask !== null) {
             // A task that is already being processed cannot be re-pointed anymore.
-            if (!empty($existingtask->get_timestarted())) {
+            if (self::is_task_running($existingtask)) {
                 return;
             }
             // The task runner defines the user all AI requests of the task are performed
@@ -81,10 +81,12 @@ class task_manager {
     }
 
     /**
-     * Queue a feedback generation task and initialise its stored_progress.
+     * Queue a feedback generation task and ensure it has a stored_progress record.
      *
-     * After queuing, finds the task and creates a stored_progress record
-     * so the client can poll for real-time progress updates.
+     * After queuing, finds the task and creates a stored_progress record so the
+     * client can poll for real-time progress updates. An already existing record
+     * is reused: a running task writes to its record by id, and any browser that
+     * is already polling would hang on a freshly created record.
      *
      * @param int $assignmentid The assignment instance ID.
      * @param int $userid The user whose feedback should be generated.
@@ -101,11 +103,16 @@ class task_manager {
             return 0;
         }
 
-        $adhoctask->initialise_stored_progress();
-
         $idnumber = stored_progress_bar::convert_to_idnumber(
             process_feedback_adhoc::class . '_' . $adhoctask->get_id()
         );
+        $record = $DB->get_record('stored_progress', ['idnumber' => $idnumber]);
+        if ($record) {
+            return (int) $record->id;
+        }
+
+        $adhoctask->initialise_stored_progress();
+
         $record = $DB->get_record('stored_progress', ['idnumber' => $idnumber]);
         if ($record) {
             // Set initial message directly in DB to avoid HTML output in AJAX context.
@@ -115,6 +122,31 @@ class task_manager {
         }
 
         return 0;
+    }
+
+    /**
+     * Check whether a task has already been picked up by a cron runner.
+     *
+     * @param process_feedback_adhoc $task The task to check.
+     * @return bool True if the task has started.
+     */
+    private static function is_task_running(process_feedback_adhoc $task): bool {
+        return !empty($task->get_timestarted());
+    }
+
+    /**
+     * Check whether the task for the given assignment and user is already being processed.
+     *
+     * A running task can neither be re-pointed to another task runner nor have
+     * the feedback record it is about to write be removed safely.
+     *
+     * @param int $assignmentid The assignment instance ID.
+     * @param int $userid The user ID.
+     * @return bool True if a matching task has already started.
+     */
+    public static function is_task_running_for_user(int $assignmentid, int $userid): bool {
+        $task = self::find_task_for_user($assignmentid, $userid);
+        return $task !== null && self::is_task_running($task);
     }
 
     /**
