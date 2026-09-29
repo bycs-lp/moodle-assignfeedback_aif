@@ -407,7 +407,7 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
      *
      * @param object $record The submission record.
      * @param string $errormsg The error message to store.
-     * @param string $debuginfo Optional debug info (stored in errormessage if non-empty).
+     * @param string $debuginfo Optional debug info (logged to the task output, not stored).
      */
     private function save_error_feedback(object $record, string $errormsg, string $debuginfo = ''): void {
         global $DB;
@@ -415,10 +415,10 @@ class process_feedback_adhoc extends \core\task\adhoc_task {
         $clock = \core\di::get(\core\clock::class);
         $now = $clock->now()->getTimestamp();
 
-        $fullmsg = $errormsg;
         if ($debuginfo !== '') {
-            $fullmsg .= ' | ' . $debuginfo;
+            mtrace('assignfeedback_aif debuginfo: ' . $debuginfo);
         }
+        $fullmsg = $errormsg;
 
         // Check if a record already exists (e.g. a pending lock record).
         $existing = $DB->get_record('assignfeedback_aif_feedback', [
