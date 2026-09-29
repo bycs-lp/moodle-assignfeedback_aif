@@ -836,4 +836,43 @@ final class process_feedback_test extends \advanced_testcase {
         // No actual feedback text should be stored when generation fails.
         $this->assertSame('', $feedback->feedback);
     }
+
+    #[\PHPUnit\Framework\Attributes\Group('baseline')]
+    /**
+     * Backend debug information is not stored and the stored error message is escaped on output.
+     *
+     * @covers \assignfeedback_aif\task\process_feedback_adhoc::execute
+     * @covers \assignfeedback_aif\local\feedback_utils::get_error_from_feedback
+     */
+    public function test_error_message_hides_debuginfo_and_is_escaped(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $env = $this->create_test_environment();
+        $this->create_and_submit($env, 'Student text');
+        $aifid = $this->create_aif_config($env, 'Prompt');
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $env->assign->id,
+            'userid' => $env->student->id,
+            'latest' => 1,
+        ]);
+
+        $method = new \ReflectionMethod(process_feedback_adhoc::class, 'save_error_feedback');
+        ob_start();
+        $method->invoke(
+            new process_feedback_adhoc(),
+            (object) ['aifid' => $aifid, 'subid' => $submission->id],
+            'Quota <b>exceeded</b>',
+            '#0 /var/www/html/public/local/ai_manager/classes/base_connector.php(42)'
+        );
+        ob_end_clean();
+        $record = $DB->get_record('assignfeedback_aif_feedback', ['submission' => $submission->id]);
+        $error = \assignfeedback_aif\local\feedback_utils::get_error_from_feedback($record);
+
+        // Violation: the debug information is not stored and the markup is not rendered.
+        $this->assertStringNotContainsString('base_connector', $record->errormessage);
+        $this->assertStringNotContainsString('<b>', $error);
+        // Verification: the error message itself is still shown.
+        $this->assertStringContainsString('Quota &lt;b&gt;exceeded&lt;/b&gt;', $error);
+    }
 }
