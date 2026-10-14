@@ -221,7 +221,7 @@ class feedback_utils {
         // New status-based error detection.
         if (!empty($record->status) && $record->status === 'error') {
             $errormsg = $record->errormessage ?? '';
-            return get_string('feedbackgenerationerror', 'assignfeedback_aif', $errormsg);
+            return get_string('feedbackgenerationerror', 'assignfeedback_aif', s($errormsg));
         }
 
         // Legacy fallback: parse _error from skippedfiles JSON.
